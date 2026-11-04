@@ -111,3 +111,30 @@ it('reset clears recovery copies as well as tasks and history', async () => {
   expect(h.persisted().tasks).toHaveLength(0);
   expect(h.persisted().history).toHaveLength(0);
 });
+
+it('ambient preview and stop commands preserve settings, timer, history and revision', async () => {
+  const h = harness();
+  const before = structuredClone(h.persisted());
+  await h.coordinator.dispatch({
+    type: 'audio.ambientPreview',
+    sound: 'rain',
+    url: 'https://audio.example/rain.mp3',
+    volume: 0.3,
+  });
+  await h.coordinator.dispatch({ type: 'audio.previewStop' });
+  expect(h.effects.preview).toHaveBeenCalledTimes(2);
+  expect(h.effects.complete).not.toHaveBeenCalled();
+  expect(h.persisted()).toEqual(before);
+});
+
+it.each(['data.reset', 'data.import'] as const)('clears stored audio blobs on %s', async (type) => {
+  const h = harness();
+  const clear = vi.fn().mockResolvedValue(undefined);
+  h.storage.clearLocalAudio = clear;
+  await h.coordinator.dispatch(
+    type === 'data.reset'
+      ? { type, confirmed: true }
+      : { type, json: JSON.stringify(initialState()), confirmed: true },
+  );
+  expect(clear).toHaveBeenCalledOnce();
+});

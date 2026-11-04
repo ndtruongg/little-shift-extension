@@ -1,5 +1,6 @@
 import {
   initialState,
+  emptyAmbientFiles,
   localDay,
   newTimer,
   parseImport,
@@ -85,6 +86,8 @@ export function applyCommand(state: State, command: Command, now: number): State
   switch (command.type) {
     case 'get':
     case 'audio.preview':
+    case 'audio.ambientPreview':
+    case 'audio.previewStop':
       return state;
     case 'timer.start':
       start(state, now);
@@ -158,6 +161,7 @@ export function applyCommand(state: State, command: Command, now: number): State
       // Imported active sessions are made safe: no stale alarms or completion side effects.
       imported.timer = newTimer(imported.timer.mode, imported.settings);
       imported.settings.ambient = 'off';
+      imported.settings.ambientFiles = emptyAmbientFiles();
       imported.lastCompletion = null;
       return imported;
     }

@@ -108,13 +108,15 @@ try {
   await settings.getByRole('button', { name: 'Xuất JSON', exact: true }).click();
   const download = await downloadPromise;
   await download.saveAs('output/playwright/preview-export.json');
-  await settings.locator('input[type=file]').setInputFiles({
+  await settings.locator('input[accept="application/json,.json"]').setInputFiles({
     name: 'invalid.json',
     mimeType: 'application/json',
     buffer: Buffer.from('{"schemaVersion":999}'),
   });
   await settings.getByRole('alert').filter({ hasText: 'Dữ liệu không hợp lệ' }).waitFor();
-  await settings.locator('input[type=file]').setInputFiles('output/playwright/preview-export.json');
+  await settings
+    .locator('input[accept="application/json,.json"]')
+    .setInputFiles('output/playwright/preview-export.json');
   await page
     .getByRole('dialog', { name: 'Thay thế dữ liệu?' })
     .getByRole('button', { name: 'Nhập dữ liệu', exact: true })

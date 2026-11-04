@@ -19,6 +19,39 @@ const day = z
     return date.getFullYear() === y && date.getMonth() === m! - 1 && date.getDate() === d;
   }, 'Ngày không hợp lệ');
 export const modeSchema = z.enum(['focus', 'short', 'long']);
+export const ambientSoundSchema = z.enum(['rain', 'cafe', 'forest']);
+export const MAX_AUDIO_FILE_BYTES = 25 * 1024 * 1024;
+export const localAudioFileSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().trim().min(1).max(255),
+  type: z.string().max(100),
+  size: z.number().int().min(1).max(MAX_AUDIO_FILE_BYTES),
+});
+export type LocalAudioFile = z.infer<typeof localAudioFileSchema>;
+export const emptyAmbientFiles = () => ({ rain: null, cafe: null, forest: null });
+const ambientFilesSchema = z.object({
+  rain: localAudioFileSchema.nullable().default(null),
+  cafe: localAudioFileSchema.nullable().default(null),
+  forest: localAudioFileSchema.nullable().default(null),
+});
+export const audioUrlSchema = z
+  .string()
+  .trim()
+  .max(2048)
+  .refine((value) => {
+    if (!value) return true;
+    try {
+      const url = new URL(value);
+      return ['https:', 'http:'].includes(url.protocol) && !url.username && !url.password;
+    } catch {
+      return false;
+    }
+  }, 'Nhập link âm thanh HTTP/HTTPS hợp lệ hoặc để trống để dùng âm mặc định.');
+export const ambientUrlsSchema = z.object({
+  rain: audioUrlSchema.default(''),
+  cafe: audioUrlSchema.default(''),
+  forest: audioUrlSchema.default(''),
+});
 export const settingsSchema = z.object({
   focus: z.number().int().min(1).max(120).default(25),
   short: z.number().int().min(1).max(60).default(5),
@@ -32,6 +65,8 @@ export const settingsSchema = z.object({
   notifications: z.boolean().default(true),
   ambient: z.enum(['off', 'rain', 'cafe', 'forest']).default('off'),
   ambientVolume: z.number().min(0).max(1).default(0.35),
+  ambientUrls: ambientUrlsSchema.default(() => ({ rain: '', cafe: '', forest: '' })),
+  ambientFiles: ambientFilesSchema.default(emptyAmbientFiles),
   animation: z.boolean().default(true),
   dailyGoal: z.number().int().min(1).max(24).default(8),
 });

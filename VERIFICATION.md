@@ -8,7 +8,7 @@ Phạm vi thay đổi: toàn bộ source mới trong `little-shift-extension/`. 
 | ------------------------------- | --------------------------------- |
 | `pnpm typecheck`                | Đạt                               |
 | `pnpm lint` (ESLint + Prettier) | Đạt                               |
-| `pnpm test`                     | 36 test đạt trong 4 file          |
+| `pnpm test`                     | 60 test đạt trong 5 file          |
 | `pnpm build`                    | Đạt; `dist/` có thể Load unpacked |
 | `pnpm peers check`              | Không có xung đột peer dependency |
 | Smoke test production preview   | Đạt; không có lỗi JavaScript      |
@@ -36,3 +36,22 @@ Báo cáo có thể tạo lại bằng `pnpm test:browser` và `pnpm test:extens
 Kiểm thử tự động xác nhận đường đi API và audio engine; chưa trực tiếp nghe âm thanh từ loa hoặc nhìn banner của hệ điều hành. Chưa cho máy thật ngủ, chưa đóng/mở Chrome cá nhân. Các tình huống quá hạn, phục hồi worker và idempotency được kiểm tra ở domain; alarm chạy khi đóng UI đã kiểm tra bằng Chromium thật.
 
 Hướng dẫn kiểm thử loa, thông báo OS và máy ngủ nằm trong README. Không bảo đảm chuông phát khi Chrome tắt hoặc máy ngủ. Preview cần trang đang mở; bảo đảm timer nền thuộc bản extension.
+
+## Bổ sung cấu hình link âm thanh nền
+
+Đã kiểm tra `node scripts/check-audio-links.mjs` với file WAV thử được phục vụ cục bộ, không có CORS headers:
+
+- Nghe thử URL chưa lưu không sửa cài đặt, dừng thử khôi phục âm trước đó.
+- Link được lưu và giữ sau reload; đóng cài đặt không lưu sẽ bỏ bản nháp.
+- URL sai scheme hoặc file lỗi báo rõ; thay URL đúng phát lại được và dừng nguồn cũ.
+- Nghe thử từ tab thứ hai vẫn dùng một nơi phát, không tạo bản tiếng trùng.
+- Ba ô cấu hình hiển thị được ở desktop và mobile.
+- Extension unpacked phát URL qua một offscreen document, không thêm host permissions, không tăng lịch sử phiên.
+
+Báo cáo ở `output/playwright/audio-links-report.json`; ảnh ở `audio-links-settings-desktop.png` và `audio-links-settings-mobile.png` trong cùng thư mục. Kiểm tra này dùng media thử cục bộ; tính sẵn có của link bên ngoài phụ thuộc nhà cung cấp file và kết nối mạng.
+
+## Bổ sung file âm thanh cục bộ
+
+Test đơn vị kiểm tra file trống, sai định dạng, quá 25 MB, metadata tương thích dữ liệu cũ, loại bỏ tham chiếu file khi import JSON, đọc Blob, hủy lần đọc cũ, thu hồi object URL và khôi phục file sau khi nghe thử.
+
+Smoke test audio kiểm tra chọn file WAV qua file picker, nghe thử file nháp, hủy dialog xóa Blob nháp, lưu rồi reload vẫn giữ file, phát file khi offline, xóa file chỉ áp dụng sau Save, file lưu được đọc bởi offscreen document trong extension unpacked và reset xóa hết Blob. Ảnh giao diện lưu tại `output/playwright/local-audio-settings-desktop.png` và `output/playwright/local-audio-settings-mobile.png`; báo cáo chung trong `audio-links-report.json`.

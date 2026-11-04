@@ -106,3 +106,33 @@ it('rejects out-of-range Date timestamps before they reach statistics', () => {
   state.timer.startedAt = 1e200;
   expect(() => decodeState(state)).toThrow();
 });
+
+it('loads existing v2 settings without links and round-trips custom links through JSON', () => {
+  const state = initialState();
+  const { ambientUrls: _links, ...oldSettings } = state.settings;
+  expect(decodeState({ ...state, settings: oldSettings }).settings.ambientUrls).toEqual({
+    rain: '',
+    cafe: '',
+    forest: '',
+  });
+  state.settings.ambientUrls = {
+    rain: 'https://audio.example/rain.mp3',
+    cafe: '',
+    forest: 'https://audio.example/forest.ogg?token=example',
+  };
+  expect(parseImport(JSON.stringify(state)).settings.ambientUrls).toEqual(
+    state.settings.ambientUrls,
+  );
+});
+
+it.each([
+  'javascript:alert(1)',
+  'data:audio/wav;base64,AAAA',
+  'file:///tmp/audio.wav',
+  'https://user:password@example.com/audio.mp3',
+  'not a link',
+])('rejects invalid custom audio URL: %s', (url) => {
+  const state = initialState();
+  state.settings.ambientUrls.rain = url;
+  expect(() => decodeState(state)).toThrow('HTTP/HTTPS');
+});

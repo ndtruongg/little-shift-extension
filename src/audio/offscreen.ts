@@ -1,6 +1,10 @@
 import { AudioEngine } from './engine';
 import type { AudioRequest } from '../domain/protocol';
-const engine = new AudioEngine();
+const engine = new AudioEngine((error) => {
+  void chrome.runtime
+    .sendMessage({ target: 'ui', type: 'audio.error', error })
+    .catch(() => undefined);
+});
 chrome.runtime.onMessage.addListener((message: AudioRequest, sender, respond) => {
   if (sender.id !== chrome.runtime.id || message?.target !== 'audio') return;
   engine

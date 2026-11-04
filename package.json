@@ -12,7 +12,8 @@
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",
     "test:browser": "pnpm build && node scripts/check-preview.mjs",
-    "test:extension": "pnpm build && node scripts/check-extension.mjs"
+    "test:extension": "pnpm build && node scripts/check-extension.mjs",
+    "test:audio-links": "pnpm build && node scripts/check-audio-links.mjs"
   },
   "dependencies": {
     "@fontsource/be-vietnam-pro": "^5.3.0",

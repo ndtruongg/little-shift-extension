@@ -1,5 +1,11 @@
 import { Coordinator } from '../domain/coordinator';
-import type { AudioRequest, Command, Reply } from '../domain/protocol';
+import {
+  ambientPlayback,
+  previewRequest,
+  type AudioRequest,
+  type Command,
+  type Reply,
+} from '../domain/protocol';
 import { decodeState, type State } from '../domain/model';
 import { AudioEngine } from '../audio/engine';
 import { previewStorage, STORAGE_KEY } from './storage';
@@ -10,7 +16,13 @@ const listeners = new Set<(state: State) => void>();
 const errorListeners = new Set<(message: string) => void>();
 const reportAudioError = (error: unknown) =>
   errorListeners.forEach((listener) =>
-    listener(error instanceof Error ? error.message : 'Không thể phát âm thanh.'),
+    listener(
+      error instanceof Error
+        ? error.message
+        : typeof error === 'string'
+          ? error
+          : 'Không thể phát âm thanh.',
+    ),
   );
 const emit = (state: State) => listeners.forEach((listener) => listener(state));
 let coordinator: Coordinator | null = null;
@@ -19,12 +31,39 @@ const audioChannel =
   !isExtension && typeof BroadcastChannel !== 'undefined'
     ? new BroadcastChannel('little-shift-audio')
     : null;
-const engine = !isExtension ? new AudioEngine() : null;
+type AudioChannelMessage =
+  | AudioRequest
+  | { target: 'audio.error'; error: string }
+  | { target: 'audio.request'; id: string; message: AudioRequest }
+  | { target: 'audio.reply'; id: string; error?: string };
+const pendingAudio = new Map<
+  string,
+  { resolve: () => void; reject: (error: Error) => void; timeout: ReturnType<typeof setTimeout> }
+>();
+const broadcastAudioError = (error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error);
+  reportAudioError(message);
+  audioChannel?.postMessage({ target: 'audio.error', error: message });
+};
+const engine = !isExtension ? new AudioEngine(broadcastAudioError) : null;
 let leader = false;
 let ambientKey = '';
 async function applyAudio(message: AudioRequest) {
   if (leader) await engine?.handle(message);
-  else audioChannel?.postMessage(message);
+  else if (
+    audioChannel &&
+    (message.type === 'ambient.preview' || message.type === 'ambient.previewStop')
+  ) {
+    await new Promise<void>((resolve, reject) => {
+      const id = crypto.randomUUID();
+      const timeout = setTimeout(() => {
+        pendingAudio.delete(id);
+        reject(new Error('Không kết nối được tab đang phát âm thanh. Hãy thử lại ở tab đầu tiên.'));
+      }, 12000);
+      pendingAudio.set(id, { resolve, reject, timeout });
+      audioChannel.postMessage({ target: 'audio.request', id, message });
+    });
+  } else audioChannel?.postMessage(message);
 }
 if (!isExtension) {
   let unlocked = false;
@@ -38,8 +77,7 @@ if (!isExtension) {
         await engine.handle({
           target: 'audio',
           type: 'ambient',
-          sound: state.settings.ambient,
-          volume: state.settings.ambientVolume,
+          ...ambientPlayback(state.settings),
         });
       })
       .catch((error: unknown) => {
@@ -58,8 +96,7 @@ if (!isExtension) {
         ?.handle({
           target: 'audio',
           type: 'ambient',
-          sound: state.settings.ambient,
-          volume: state.settings.ambientVolume,
+          ...ambientPlayback(state.settings),
         })
         .catch(reportAudioError);
     await new Promise<void>(() => {
@@ -68,8 +105,29 @@ if (!isExtension) {
   };
   if (navigator.locks) void navigator.locks.request('little-shift-preview-audio', ownAudio);
   else leader = true;
-  audioChannel?.addEventListener('message', (event: MessageEvent<AudioRequest>) => {
-    if (leader) void engine?.handle(event.data).catch(console.error);
+  audioChannel?.addEventListener('message', (event: MessageEvent<AudioChannelMessage>) => {
+    if (event.data.target === 'audio.error') reportAudioError(event.data.error);
+    else if (event.data.target === 'audio.reply') {
+      const pending = pendingAudio.get(event.data.id);
+      if (!pending) return;
+      clearTimeout(pending.timeout);
+      pendingAudio.delete(event.data.id);
+      if (event.data.error) pending.reject(new Error(event.data.error));
+      else pending.resolve();
+    } else if (event.data.target === 'audio.request') {
+      if (!leader) return;
+      const { id, message } = event.data;
+      void engine
+        ?.handle(message)
+        .then(() => audioChannel?.postMessage({ target: 'audio.reply', id }))
+        .catch((error: unknown) =>
+          audioChannel?.postMessage({
+            target: 'audio.reply',
+            id,
+            error: error instanceof Error ? error.message : 'Không thể phát âm thanh.',
+          }),
+        );
+    } else if (leader) void engine?.handle(event.data).catch(broadcastAudioError);
   });
   coordinator = new Coordinator(previewStorage, {
     async sync(state) {
@@ -84,13 +142,13 @@ if (!isExtension) {
               Math.max(0, state.timer.endAt! - Date.now()),
             )
           : null;
-      const key = `${state.settings.ambient}:${state.settings.ambientVolume}`;
+      const playback = ambientPlayback(state.settings);
+      const key = JSON.stringify(playback);
       if (key !== ambientKey) {
         void applyAudio({
           target: 'audio',
           type: 'ambient',
-          sound: state.settings.ambient,
-          volume: state.settings.ambientVolume,
+          ...playback,
         }).catch(reportAudioError);
         ambientKey = key;
       }
@@ -116,14 +174,8 @@ if (!isExtension) {
           silent: true,
         });
     },
-    async preview(command) {
-      await applyAudio({
-        target: 'audio',
-        type: 'bell',
-        id: `preview:${crypto.randomUUID()}`,
-        bell: command.bell,
-        volume: command.volume,
-      });
+    async preview(command, state) {
+      await applyAudio(previewRequest(command, state));
     },
   });
   window.addEventListener('storage', (event) => {
@@ -133,6 +185,17 @@ if (!isExtension) {
     if (!document.hidden) void send({ type: 'get' }).catch(console.error);
   });
 } else {
+  chrome.runtime.onMessage.addListener(
+    (message: { target?: string; type?: string; error?: string }, sender) => {
+      if (
+        sender.id === chrome.runtime.id &&
+        message.target === 'ui' &&
+        message.type === 'audio.error' &&
+        typeof message.error === 'string'
+      )
+        reportAudioError(message.error);
+    },
+  );
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'local' && changes[STORAGE_KEY]?.newValue) {
       try {

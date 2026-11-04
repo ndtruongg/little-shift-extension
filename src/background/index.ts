@@ -2,12 +2,27 @@ import { Coordinator } from '../domain/coordinator';
 import { formatTime, remaining } from '../domain/timer';
 import { modeLabel, type State } from '../domain/model';
 import { chromeStorage } from '../platform/storage';
-import type { AudioRequest, Request, Reply } from '../domain/protocol';
+import {
+  ambientPlayback,
+  previewRequest,
+  type AudioRequest,
+  type Request,
+  type Reply,
+} from '../domain/protocol';
 
 const END_ALARM = 'little-shift-end';
 const BADGE_ALARM = 'little-shift-badge';
 let creatingAudio: Promise<void> | null = null;
 let lastAmbient = '';
+const reportAudioError = (error: unknown) => {
+  void chrome.runtime
+    .sendMessage({
+      target: 'ui',
+      type: 'audio.error',
+      error: error instanceof Error ? error.message : 'Không thể phát âm thanh.',
+    })
+    .catch(() => undefined);
+};
 
 async function audio(message: AudioRequest) {
   const contexts = await chrome.runtime.getContexts({
@@ -55,15 +70,15 @@ async function sync(state: State) {
   await chrome.action.setTitle({
     title: `Little Shift · ${modeLabel[t.mode]} · ${formatTime(remaining(t, Date.now()))}`,
   });
-  const ambient = `${state.settings.ambient}:${state.settings.ambientVolume}`;
+  const playback = ambientPlayback(state.settings);
+  const ambient = JSON.stringify(playback);
   if (lastAmbient !== ambient) {
     if (state.settings.ambient !== 'off')
-      await audio({
+      void audio({
         target: 'audio',
         type: 'ambient',
-        sound: state.settings.ambient,
-        volume: state.settings.ambientVolume,
-      });
+        ...playback,
+      }).catch(reportAudioError);
     else {
       const contexts = await chrome.runtime.getContexts({
         contextTypes: [chrome.runtime.ContextType.OFFSCREEN_DOCUMENT],
@@ -106,14 +121,8 @@ const coordinator = new Coordinator(chromeStorage, {
       }),
     );
   },
-  async preview(command) {
-    await audio({
-      target: 'audio',
-      type: 'bell',
-      id: `preview:${crypto.randomUUID()}`,
-      bell: command.bell,
-      volume: command.volume,
-    });
+  async preview(command, state) {
+    await audio(previewRequest(command, state));
   },
 });
 chrome.runtime.onMessage.addListener(

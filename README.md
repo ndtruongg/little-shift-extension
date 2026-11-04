@@ -31,14 +31,15 @@ pnpm build
 
 Sau khi sửa code, build lại, nhấn Reload ở `chrome://extensions` rồi tải lại các trang Little Shift đang mở. `dist/` đã chứa manifest, entry points, icon PNG 16/32/48/128, font và giấy phép; có thể Load unpacked trực tiếp.
 
-Chỉ xin `storage`, `alarms`, `notifications`, `offscreen`; không có host permissions, content scripts, quyền đọc website hoặc lịch sử duyệt web. CSP chỉ cho script và object nội bộ; không có CDN, remote script hoặc eval. Zod bật `jitless` để không thử biên dịch schema động trong môi trường MV3.
+Chỉ xin `storage`, `alarms`, `notifications`, `offscreen`; không có host permissions, content scripts, quyền đọc website hoặc lịch sử duyệt web. CSP chỉ cho script và object nội bộ; script và font không phụ thuộc CDN; không có remote script hoặc eval. Media cho phép link HTTP/HTTPS do người dùng cấu hình. Zod bật `jitless` để không thử biên dịch schema động trong môi trường MV3.
 
 ## Cách sử dụng
 
 - **Thêm công việc** → nhập tên, ưu tiên, số phiên dự kiến và ngày → Enter hoặc **Lưu công việc**. Escape đóng dialog. Click tên để chọn việc tập trung, ô vuông để đánh dấu xong. Các nút bút chì, lên/xuống và thùng rác dùng để sửa, sắp xếp và xóa có xác nhận.
 - Bộ lọc **Hôm nay / Tất cả / Đã xong**; công việc chưa xong từ ngày trước có nút chuyển sang hôm nay.
 - **Bắt đầu / Tạm dừng / Tiếp tục**, Reset, hoặc chọn **Tập trung / Nghỉ ngắn / Nghỉ dài**. Đổi chế độ và reset một phiên đang chạy hoặc tạm dừng đều cần xác nhận. Focus hoàn thành tăng số phiên của task nhưng không tự đánh dấu task đã xong.
-- Chọn **Mưa đêm / Quán cà phê / Rừng xanh**, click lại để tắt. Đây là ba không gian âm thanh tổng hợp cục bộ: tiếng mưa, tiếng nền trầm và ly chạm nhẹ, gió và chim. Mặc định tắt. Thanh âm lượng nền độc lập với chuông.
+- Chọn **Mưa đêm / Quán cà phê / Rừng xanh**, click lại để tắt. Đây là ba không gian âm thanh tổng hợp cục bộ: tiếng mưa, tiếng nền trầm và ly chạm nhẹ, gió và chim. Mặc định tắt. Thanh âm lượng nền độc lập với chuông. Trong **Cài đặt → Không gian của bạn**, có thể nhập **Link Mưa đêm / Link Quán cà phê / Link Rừng xanh** rồi nhấn **Lưu cài đặt**. Link trống dùng âm mặc định; link riêng cần trỏ trực tiếp tới MP3/WAV/OGG truy cập được (không phải trang YouTube/Spotify) và cần mạng. **Nghe thử** phát tối đa 10 giây rồi khôi phục âm đang phát; **Dừng thử** hoặc đóng cài đặt cũng khôi phục ngay. Link không hợp lệ, không tải được hoặc quá lâu sẽ báo lỗi. Các link được lưu cùng cài đặt, export/import JSON và đồng bộ giữa các tab; chỉnh rồi đóng mà không lưu sẽ bỏ thay đổi.
+- **File âm thanh từ máy**: trong từng mode có nút **Chọn file từ máy** (tối đa 25 MB/file). Chọn MP3/WAV/OGG hoặc audio được trình duyệt hỗ trợ, nghe thử rồi **Lưu cài đặt**. File được chép vào IndexedDB của thiết bị và phát offline, không phụ thuộc đường dẫn file gốc. Chọn file thay link của mode đó; có thể **Thay file** hoặc **Xóa file** để trở về nguồn mặc định. Đóng mà chưa lưu sẽ bỏ file mới chọn. JSON chỉ chứa metadata, không chứa nội dung file; sau khi import phải chọn lại file. Reset toàn bộ dữ liệu sẽ xóa cả các file đã lưu.
 - Cài đặt bằng icon bánh răng: thời lượng, chu kỳ nghỉ dài, auto-start (mặc định tắt), chuông và nghe thử, thông báo, âm thanh nền, chuyển động, mục tiêu ngày, xuất/nhập JSON và reset dữ liệu.
 - Focus và nghỉ dài: **1–120 phút**; nghỉ ngắn: **1–60 phút**; chu kỳ: **2–12 phiên**; mục tiêu: **1–24 phiên/ngày**. Thay đổi thời lượng không thay đổi phiên đang chạy/tạm dừng.
 - Popup hiển thị task, chế độ, timer, điều khiển và nút mở dashboard, dùng chung trạng thái nền.
@@ -68,16 +69,19 @@ pnpm build
 
 Test domain bao phủ start/pause/resume/reset, timestamp, idempotency, phục hồi quá hạn, chu kỳ nghỉ dài, auto-start sau khi thức dậy, phiên bỏ dở, xóa task giữ tên lịch sử, nhóm ngày địa phương, hàng đợi nhiều UI, schema/migration/import, chống audio kẹt vì autoplay và chống tạo nguồn âm thanh trùng.
 
-Có hai smoke test browser có thể chạy lại bằng Chromium riêng:
+Có các smoke test browser có thể chạy lại bằng Chromium riêng:
 
 ```bash
 pnpm exec playwright install chromium
 pnpm test:browser
 pnpm test:extension
+pnpm test:audio-links
 ```
 
 - `test:browser`: build, tự mở server preview tạm, kiểm tra 1366×768, 1440×900, 1366×650 và 390×844; tạo/sửa/chọn/xong/xóa task; Enter/Escape; lưu cài đặt; reload với audio đã bật; đồng bộ popup; export/import JSON; validation; reset không chèn demo lại; reduced-motion. Ảnh và báo cáo lưu trong `output/playwright/`.
 - `test:extension`: build, Load unpacked vào profile Chromium tạm, kiểm tra trạng thái trống, thao tác task, đồng bộ hai New Tab + popup, một offscreen document, ba chuông nghe thử không đổi thống kê, badge, sau đó chạy phiên **1 phút**, đóng toàn bộ UI extension và kiểm tra alarm hoàn thành đúng một lần. Tạo/xóa profile kiểm thử riêng; không thay đổi Chrome cá nhân.
+
+- `test:audio-links`: phát WAV thử từ server cục bộ không có CORS headers; kiểm tra nghe thử, dừng/khôi phục, sửa link chưa lưu, reload, lỗi link, nhiều tab và URL trong extension unpacked không thêm host permissions. Kiểm tra thêm file picker, file nháp khi hủy, Blob lưu sau reload, phát offline, xóa file sau khi lưu và reset file trong extension unpacked.
 
 Các smoke test xác minh API/audio engine nhận và xử lý yêu cầu. **Việc nghe chuông từ loa và nhìn banner thông báo của hệ điều hành cần kiểm tra thủ công**:
 
@@ -104,10 +108,11 @@ src/
     statistics.ts         Thống kê theo ngày địa phương
   background/index.ts     Service worker, alarms, badge, notifications
   audio/
-    engine.ts             Synthesis ba chuông và ba âm thanh nền
+    engine.ts             Synthesis, media URL và file audio cục bộ
     offscreen.ts          Điểm nhận audio message của offscreen document
   platform/
     storage.ts            chrome.storage.local và localStorage adapter
+    local-audio.ts        Blob audio trong IndexedDB; không gửi file lên mạng
     adapter.ts            Message bridge và browser preview
     demo.ts               Dữ liệu chỉ được gọi bởi preview adapter
   stores/                 Pinia UI state và confirmation dialog
@@ -121,7 +126,7 @@ tests/                   Test domain, storage, coordinator, audio
 
 ## Asset và tài liệu API
 
-Căn phòng SVG, icon pixel, PNG extension và âm thanh tổng hợp được tạo riêng trong source của dự án; không dùng nguyên ảnh giao diện tham chiếu hoặc tải audio/image từ CDN. Icon PNG có thể tạo lại bằng `python3 scripts/generate-icons.py`.
+Căn phòng SVG, icon pixel, PNG extension và âm thanh tổng hợp được tạo riêng trong source của dự án; không dùng nguyên ảnh giao diện tham chiếu. Âm mặc định chạy cục bộ; chỉ âm nền có link riêng mới tải từ nguồn người dùng đã nhập. Icon PNG có thể tạo lại bằng `python3 scripts/generate-icons.py`.
 
 - **Silkscreen**: [Fontsource](https://fontsource.org/fonts/silkscreen), SIL Open Font License 1.1; dùng cho logo và chữ số pixel. Bản giấy phép ở `public/licenses/silkscreen-OFL.txt`.
 - **VT323**: [Google Fonts source](https://github.com/google/fonts/tree/main/ofl/vt323), SIL Open Font License 1.1; tiêu đề pixel có đủ dấu tiếng Việt, giấy phép ở `public/licenses/vt323-OFL.txt`.

@@ -1,5 +1,6 @@
 import { decodeState, initialState, type State } from '../domain/model';
 import { previewDemo } from './demo';
+import { clearLocalAudio } from './local-audio';
 import type { StorageAdapter } from '../domain/coordinator';
 
 export const STORAGE_KEY = 'little-shift-state';
@@ -24,6 +25,7 @@ export async function restore(
   }
 }
 export const chromeStorage: StorageAdapter = {
+  clearLocalAudio,
   async read() {
     const result = await chrome.storage.local.get(STORAGE_KEY);
     if (result[STORAGE_KEY] === undefined) {
@@ -49,6 +51,7 @@ export const chromeStorage: StorageAdapter = {
   },
 };
 export const previewStorage: StorageAdapter = {
+  clearLocalAudio,
   async read() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw === null) {

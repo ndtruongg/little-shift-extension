@@ -1,5 +1,12 @@
 import { z } from 'zod';
-import { modeSchema, settingsSchema, taskSchema, type State } from './model';
+import {
+  ambientSoundSchema,
+  audioUrlSchema,
+  modeSchema,
+  settingsSchema,
+  taskSchema,
+  type State,
+} from './model';
 
 const key = z.string().min(1).max(100);
 export const commandSchema = z.discriminatedUnion('type', [
@@ -30,10 +37,66 @@ export const commandSchema = z.discriminatedUnion('type', [
     volume: z.number().min(0).max(1),
   }),
   z.object({ type: z.literal('notice.dismiss') }),
+  z.object({
+    type: z.literal('audio.ambientPreview'),
+    sound: ambientSoundSchema,
+    url: audioUrlSchema,
+    fileId: z.string().uuid().optional(),
+    volume: z.number().min(0).max(1),
+  }),
+  z.object({ type: z.literal('audio.previewStop') }),
 ]);
 export type Command = z.infer<typeof commandSchema>;
 export type Reply = { ok: true; state: State } | { ok: false; error: string };
 export type Request = { target: 'background'; command: Command };
+export type AmbientPlayback = {
+  sound: State['settings']['ambient'];
+  volume: number;
+  url?: string;
+  fileId?: string;
+};
 export type AudioRequest =
-  | { target: 'audio'; type: 'ambient'; sound: State['settings']['ambient']; volume: number }
+  | ({ target: 'audio'; type: 'ambient' } & AmbientPlayback)
+  | {
+      target: 'audio';
+      type: 'ambient.preview';
+      sound: z.infer<typeof ambientSoundSchema>;
+      url: string;
+      fileId?: string;
+      volume: number;
+      restore: AmbientPlayback;
+    }
+  | { target: 'audio'; type: 'ambient.previewStop' }
   | { target: 'audio'; type: 'bell'; id: string; bell: State['settings']['bell']; volume: number };
+export type AudioPreviewCommand = Extract<
+  Command,
+  { type: 'audio.preview' | 'audio.ambientPreview' | 'audio.previewStop' }
+>;
+export function ambientPlayback(settings: State['settings']): AmbientPlayback {
+  return {
+    sound: settings.ambient,
+    volume: settings.ambientVolume,
+    url: settings.ambient === 'off' ? '' : settings.ambientUrls[settings.ambient],
+    fileId: settings.ambient === 'off' ? undefined : settings.ambientFiles[settings.ambient]?.id,
+  };
+}
+export function previewRequest(command: AudioPreviewCommand, state: State): AudioRequest {
+  if (command.type === 'audio.ambientPreview')
+    return {
+      target: 'audio',
+      type: 'ambient.preview',
+      sound: command.sound,
+      url: command.url,
+      fileId: command.fileId,
+      volume: command.volume,
+      restore: ambientPlayback(state.settings),
+    };
+  if (command.type === 'audio.previewStop') return { target: 'audio', type: 'ambient.previewStop' };
+  return {
+    target: 'audio',
+    type: 'bell',
+    id: `preview:${crypto.randomUUID()}`,
+    bell: command.bell,
+    volume: command.volume,
+  };
+}
