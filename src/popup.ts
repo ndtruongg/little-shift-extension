@@ -1,0 +1,12 @@
+import { createApp } from 'vue';
+import { createPinia } from 'pinia';
+import '@fontsource/silkscreen/latin-400.css';
+import '@fontsource/vt323/latin-400.css';
+import '@fontsource/vt323/vietnamese-400.css';
+import '@fontsource/be-vietnam-pro/latin-400.css';
+import '@fontsource/be-vietnam-pro/vietnamese-400.css';
+import '@fontsource/be-vietnam-pro/latin-600.css';
+import '@fontsource/be-vietnam-pro/vietnamese-600.css';
+import './style.css';
+import Popup from './Popup.vue';
+createApp(Popup).use(createPinia()).mount('#app');
