@@ -1,18 +1,21 @@
 import type { AmbientPlayback, AudioRequest } from '../domain/protocol';
 import { audioUrlSchema } from '../domain/model';
 import { loadLocalAudio } from '../platform/local-audio';
+import rainUrl from '../assets/rain.mp3?url';
+import cafeUrl from '../assets/coffee.mp3?url';
+import forestUrl from '../assets/forest.mp3?url';
 
-// Built-in synthesis and optional direct media URLs share one playback owner.
+const bundledAmbient = { rain: rainUrl, cafe: cafeUrl, forest: forestUrl };
+
+// Bundled tracks, custom URLs and picked files share one looping media player.
 export class AudioEngine {
   private context: AudioContext | null = null;
-  private ambient: AudioBufferSourceNode | null = null;
-  private ambientGain: GainNode | null = null;
   private sound = 'off';
   private ambientVersion = 0;
   private seen = new Set<string>();
   private nextBellAt = 0;
-  private remote: HTMLAudioElement | null = null;
-  private remoteCancel: (() => void) | null = null;
+  private media: HTMLAudioElement | null = null;
+  private mediaCancel: (() => void) | null = null;
   private sourceUrl = '';
   private sourceFileId = '';
   private localObjectUrl: string | null = null;
@@ -25,15 +28,15 @@ export class AudioEngine {
     private readLocalAudio: (id: string) => Promise<Blob> = loadLocalAudio,
   ) {}
 
-  private clearRemote() {
-    this.remoteCancel?.();
-    this.remoteCancel = null;
-    if (this.remote) {
-      this.remote.onerror = null;
-      this.remote.pause();
-      this.remote.removeAttribute('src');
-      this.remote.load();
-      this.remote = null;
+  private clearMedia() {
+    this.mediaCancel?.();
+    this.mediaCancel = null;
+    if (this.media) {
+      this.media.onerror = null;
+      this.media.pause();
+      this.media.removeAttribute('src');
+      this.media.load();
+      this.media = null;
     }
     if (this.localObjectUrl) {
       URL.revokeObjectURL(this.localObjectUrl);
@@ -72,23 +75,23 @@ export class AudioEngine {
       throw error;
     }
   }
-  private async playRemote(url: string, volume: number, version: number, local = false) {
+  private async playMedia(url: string, volume: number, version: number, local = false) {
     const element = new Audio(local ? url : audioUrlSchema.parse(url));
     element.loop = true;
     element.volume = volume;
     element.preload = 'none';
-    this.remote = element;
+    this.media = element;
     await new Promise<void>((resolve, reject) => {
       let settled = false;
       const timeout = setTimeout(
-        () => fail('Tải âm thanh quá lâu. Kiểm tra link hoặc kết nối mạng.'),
+        () => fail('Tải âm thanh quá lâu. Hãy thử lại hoặc kiểm tra nguồn âm thanh.'),
         8000,
       );
       const finish = () => {
         if (settled) return false;
         settled = true;
         clearTimeout(timeout);
-        if (this.remote === element) this.remoteCancel = null;
+        if (this.media === element) this.mediaCancel = null;
         return true;
       };
       const fail = (message: string) => {
@@ -97,17 +100,17 @@ export class AudioEngine {
           return;
         }
         const wasPending = finish();
-        this.clearRemote();
+        this.clearMedia();
         if (wasPending) reject(new Error(message));
         else this.onError(message);
       };
-      this.remoteCancel = () => {
+      this.mediaCancel = () => {
         if (finish()) resolve();
       };
       element.onerror = () =>
         fail(
           local
-            ? 'Không phát được file âm thanh. Hãy chọn file khác được trình duyệt hỗ trợ.'
+            ? 'Không phát được file âm thanh. Hãy thử lại hoặc chọn file khác trong Cài đặt.'
             : 'Không phát được link âm thanh. Dùng link trực tiếp MP3/WAV/OGG còn truy cập được.',
         );
       element
@@ -120,7 +123,7 @@ export class AudioEngine {
             error instanceof DOMException && error.name === 'NotAllowedError'
               ? 'Trình duyệt đang chặn âm thanh. Hãy nhấn lại nút phát để cho phép.'
               : local
-                ? 'Không phát được file âm thanh. Hãy chọn file khác được trình duyệt hỗ trợ.'
+                ? 'Không phát được file âm thanh. Hãy thử lại hoặc chọn file khác trong Cài đặt.'
                 : 'Không phát được link âm thanh. Kiểm tra định dạng hoặc quyền truy cập của file.',
           );
         });
@@ -217,87 +220,24 @@ export class AudioEngine {
       sound === this.sound &&
       url === this.sourceUrl &&
       (fileId ?? '') === this.sourceFileId &&
-      this.remote
+      this.media
     ) {
-      this.remote.volume = volume;
-      return;
-    }
-    if (
-      sound === this.sound &&
-      url === this.sourceUrl &&
-      (fileId ?? '') === this.sourceFileId &&
-      this.ambientGain
-    ) {
-      this.ambientGain.gain.setTargetAtTime(volume * 0.45, this.ctx().currentTime, 0.15);
+      this.media.volume = volume;
       return;
     }
     const version = ++this.ambientVersion;
-    this.clearRemote();
+    this.clearMedia();
     this.sourceUrl = url;
     this.sourceFileId = fileId ?? '';
-    this.ambient?.stop();
-    this.ambient?.disconnect();
-    this.ambientGain?.disconnect();
-    this.ambient = null;
-    this.ambientGain = null;
     this.sound = sound;
     if (sound === 'off') return;
     if (fileId) {
       const blob = await this.readLocalAudio(fileId);
       if (version !== this.ambientVersion) return;
       this.localObjectUrl = URL.createObjectURL(blob);
-      await this.playRemote(this.localObjectUrl, volume, version, true);
+      await this.playMedia(this.localObjectUrl, volume, version, true);
       return;
     }
-    if (url) {
-      await this.playRemote(url, volume, version);
-      return;
-    }
-    const ctx = this.ctx();
-    await this.unlock();
-    if (version !== this.ambientVersion) return;
-    const rate = ctx.sampleRate;
-    const length = rate * 18;
-    const buffer = ctx.createBuffer(2, length, rate);
-    let seed = 2319;
-    const random = () => {
-      seed = (seed * 16807) % 2147483647;
-      return seed / 2147483647;
-    };
-    for (let channel = 0; channel < 2; channel++) {
-      const data = buffer.getChannelData(channel);
-      let brown = 0;
-      for (let i = 0; i < length; i++) {
-        const t = i / rate;
-        const white = random() * 2 - 1;
-        brown = (brown + 0.02 * white) / 1.02;
-        // Continuous periodic envelopes ensure a quiet, seamless 18-second loop.
-        if (sound === 'rain') data[i] = white * 0.28 + brown * 2;
-        if (sound === 'cafe') {
-          const chatter =
-            Math.sin(2 * Math.PI * 171 * t + 6 * Math.sin((2 * Math.PI * t) / 3)) *
-            Math.pow(0.5 + 0.5 * Math.sin((2 * Math.PI * t) / 2), 4);
-          const clink =
-            Math.sin(2 * Math.PI * 1850 * t) *
-            Math.pow(Math.max(0, Math.cos((2 * Math.PI * t) / 6)), 90);
-          data[i] = brown * 1.4 + chatter * 0.04 + clink * 0.035;
-        }
-        if (sound === 'forest') {
-          const birds =
-            Math.sin(2 * Math.PI * 2500 * t + 55 * Math.sin(2 * Math.PI * 4 * t)) *
-            Math.pow(Math.max(0, Math.sin((2 * Math.PI * t) / 6)), 20);
-          data[i] = brown * 1.7 + birds * 0.12;
-        }
-      }
-    }
-    const source = ctx.createBufferSource();
-    const gain = ctx.createGain();
-    gain.gain.value = volume * 0.45;
-    source.buffer = buffer;
-    source.loop = true;
-    source.connect(gain).connect(ctx.destination);
-    source.start();
-    this.ambient = source;
-    this.ambientGain = gain;
+    await this.playMedia(url || bundledAmbient[sound], volume, version, !url);
   }
 }

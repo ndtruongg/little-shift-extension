@@ -8,12 +8,12 @@ Phạm vi: các thay đổi chưa commit trong `little-shift-extension/`, gồm 
 | ------------------------------------ | --------------------------------- |
 | `pnpm lint` (ESLint + Prettier)      | Đạt                               |
 | `pnpm typecheck`                     | Đạt                               |
-| `pnpm test`                          | 98 test đạt trong 7 file          |
+| `pnpm test`                          | 101 test đạt trong 7 file         |
 | `pnpm build`                         | Đạt; `dist/` có thể Load unpacked |
 | `node scripts/check-preview.mjs`     | 10 nhóm kiểm tra đạt, không lỗi   |
 | `node scripts/check-extension.mjs`   | 7 nhóm kiểm tra đạt, không lỗi    |
 | `node scripts/check-reminders.mjs`   | 14 nhóm kiểm tra đạt, không lỗi   |
-| `node scripts/check-audio-links.mjs` | 12 nhóm kiểm tra đạt, không lỗi   |
+| `node scripts/check-audio-links.mjs` | 14 nhóm kiểm tra đạt, không lỗi   |
 
 Các script browser chạy trên production build, dùng localhost và profile Chromium riêng; không điều khiển Chrome cá nhân. Có thể chạy kèm build bằng `pnpm test:browser`, `pnpm test:extension`, `pnpm test:reminders`, `pnpm test:audio-links`. Cần cài Chromium bằng `pnpm exec playwright install chromium` nếu máy chưa có.
 
@@ -25,7 +25,7 @@ Các script browser chạy trên production build, dùng localhost và profile C
 - New Tab: bảng nhắc hiển thị tên/hạn kể cả khi quyền thông báo OS bị từ chối; Xem task vượt bộ lọc; Đã xem giữ sau reload và đồng bộ hai tab. Clock UI chung cập nhật nhãn ngày, quá hạn và tiến độ ngày qua nửa đêm; không polling storage.
 - Worker/alarm: CDP Stop worker với UI đóng, Chrome task alarm xử lý batch và bỏ lịch cũ. Lifecycle ghi nhận stopped → starting → running; kết quả được đọc từ storage mà không gửi command get để kích hoạt đợt đó. Startup khôi phục alarm bị thiếu; reset dọn alarm task.
 - Popup/badge: popup.html hiển thị hai task cùng timer trong khung 360×600; Xem task mở đúng deep link; mở popup không đánh dấu đã xem. Đã xem/snooze đồng bộ New Tab, giữ dueAt/timer ID. Chrome action API xác nhận badge ưu tiên số task chưa xem, màu/tooltip đúng, sau đó trở về dấu tạm dừng hoặc số phút.
-- Audio: URL preview/dừng/khôi phục, lỗi URL và thay nguồn, một audio owner giữa các tab. File picker, Blob nháp khi hủy, lưu/reload/offline, xóa sau Save và reset Blob trong extension. Media thử là WAV được phục vụ cục bộ không có CORS headers. Unit test xác minh chuông task/Pomodoro xếp nối tiếp và ID trùng không phát lại.
+- Audio: ba MP3 mặc định `rain.mp3`/`coffee.mp3`/`forest.mp3` được decode và kiểm tra loop bằng cách seek gần cuối track rồi xác nhận phát lại từ đầu; chuyển mode giữ một player, extension phát cả ba mặc định khi offline. URL preview/dừng/khôi phục, lỗi URL và thay nguồn, một audio owner giữa các tab. File picker, Blob nháp khi hủy, lưu/reload/offline, xóa sau Save và reset Blob trong extension. Media thử là WAV được phục vụ cục bộ không có CORS headers. Unit test xác minh chuông task/Pomodoro xếp nối tiếp và ID trùng không phát lại.
 
 ## Kết quả rà soát code
 
@@ -48,3 +48,9 @@ ZIP `output/little-shift-extension.zip` được tạo từ `dist/`, kiểm tra 
 Chưa nghe chuông từ loa, nhìn/click banner OS hoặc nút snooze OS, bấm icon toolbar để xem popup native trong Chrome cá nhân, cho máy thật ngủ, thoát/mở Chrome cá nhân hoặc đợi đủ 10 phút snooze. Popup được render từ file extension trong trang Chromium; badge được kiểm tra qua Chrome action API. Snooze +10 phút đã kiểm tra timestamp/alarm thật; đến giờ snooze và hủy snooze dùng clock trong unit test. Chrome onStartup/crash window được mô phỏng ở integration/domain; Stop/restart worker đã kiểm tra bằng Chromium thật.
 
 Ưu tiên không phát trùng: nếu worker ngắt sau khi lưu claim nhưng trước khi gửi xong hiệu ứng, thông báo/chuông có thể bị lỡ và không tự replay. Máy ngủ hoặc Chrome thoát hoàn toàn có thể khiến alarm trễ; quyền OS/Không làm phiền cũng có thể chặn banner. Preview chỉ nhắc trong phạm vi trang hoạt động, không có độ tin cậy tương đương extension. Hướng dẫn kiểm tra thủ công và giới hạn đầy đủ nằm trong README.
+
+## Thay âm nền mặc định bằng MP3 — 05/11/2026
+
+Đóng gói ba file do người dùng cung cấp trong `src/assets/`: rain → Mưa đêm, coffee → Quán cà phê, forest → Rừng xanh. Mọi nguồn dùng cùng media player với loop bật; ưu tiên file đã chọn trong Cài đặt, rồi link riêng, rồi MP3 đóng gói. Đã bỏ phần tạo tiếng nền tổng hợp không còn được dùng; chuông vẫn tổng hợp như trước. Không sửa nội dung MP3 hoặc thêm quyền extension.
+
+Đợt này chạy lại unit test (101 đạt), lint, typecheck/build, preview (10 nhóm đạt) và audio smoke test (14 nhóm đạt). Các kết quả timer/reminder trong bảng thuộc đợt kiểm tra trước, không chạy lại ở lần chỉ thay media này. Chưa trực tiếp nghe độ liền mạch khi nối vòng qua loa; test xác nhận decoder/player lặp, không khẳng định nội dung đầu/cuối file nối hoàn toàn không có khoảng hở.

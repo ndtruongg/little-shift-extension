@@ -95,6 +95,42 @@ try {
   await context.addInitScript(trackAudio);
   const page = await context.newPage();
   await page.goto(previewOrigin);
+  for (const [label, filename] of [
+    ['Mưa đêm', 'rain'],
+    ['Quán cà phê', 'coffee'],
+    ['Rừng xanh', 'forest'],
+  ]) {
+    await page.getByRole('button', { name: label, exact: true }).click();
+    await page.waitForFunction((filename) => {
+      const playing = globalThis.__testAudioElements.filter((audio) => !audio.paused);
+      const audio = playing[0];
+      return (
+        playing.length === 1 &&
+        audio.readyState >= 2 &&
+        audio.loop &&
+        Number.isFinite(audio.duration) &&
+        audio.duration > 1 &&
+        audio.src.includes(`/assets/${filename}-`)
+      );
+    }, filename);
+    const source = await page.evaluate(
+      () => globalThis.__testAudioElements.find((audio) => !audio.paused).src,
+    );
+    assert.ok(source.includes(`/assets/${filename}-`) && source.endsWith('.mp3'), source);
+    await page.evaluate(() => {
+      const audio = globalThis.__testAudioElements.find((audio) => !audio.paused);
+      audio.currentTime = audio.duration - 0.2;
+    });
+    await page.waitForFunction(() => {
+      const playing = globalThis.__testAudioElements.filter((audio) => !audio.paused);
+      return playing.length === 1 && !playing[0].seeking && playing[0].currentTime < 1.5;
+    });
+  }
+  await page.getByRole('button', { name: 'Rừng xanh', exact: true }).click();
+  await page.waitForFunction(() => globalThis.__testAudioElements.every((audio) => audio.paused));
+  checks.push(
+    'All three bundled MP3 tracks decode and loop past the end; switching modes leaves one active media player',
+  );
   const dialog = await configure(page);
   await dialog.getByRole('button', { name: 'Nghe thử Mưa đêm', exact: true }).click();
   await dialog
@@ -269,6 +305,39 @@ try {
   const base = `chrome-extension://${worker.url().split('/')[2]}`;
   const page = await extension.newPage();
   await page.goto(`${base}/index.html`);
+  await extension.setOffline(true);
+  for (const sound of ['rain', 'cafe', 'forest']) {
+    const response = await page.evaluate(
+      (sound) =>
+        chrome.runtime.sendMessage({
+          target: 'background',
+          command: {
+            type: 'audio.ambientPreview',
+            sound,
+            url: '',
+            volume: 0.1,
+          },
+        }),
+      sound,
+    );
+    assert.equal(response.ok, true, response.error);
+  }
+  const stopped = await page.evaluate(() =>
+    chrome.runtime.sendMessage({ target: 'background', command: { type: 'audio.previewStop' } }),
+  );
+  assert.equal(stopped.ok, true);
+  assert.equal(
+    (
+      await page.evaluate(() =>
+        chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] }),
+      )
+    ).length,
+    1,
+  );
+  await extension.setOffline(false);
+  checks.push(
+    'Unpacked extension plays all three bundled defaults through one offscreen document with network offline',
+  );
   const dialog = await configure(page);
   await dialog.getByRole('button', { name: 'Nghe thử Mưa đêm', exact: true }).click();
   await page.waitForFunction(

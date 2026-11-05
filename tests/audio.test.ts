@@ -50,57 +50,42 @@ describe('central audio engine', () => {
     });
     expect(bell).toHaveBeenCalledTimes(2);
   });
-  it('keeps one ambient source when two initializations race and volume changes', async () => {
-    let resume!: () => void;
-    const pending = new Promise<void>((resolve) => {
-      resume = resolve;
-    });
-    const stop = vi.fn();
-    const source = {
-      connect: vi.fn().mockReturnThis(),
-      start: vi.fn(),
-      stop,
-      disconnect: vi.fn(),
-      buffer: null,
-      loop: false,
-    };
-    const gain = {
-      gain: { value: 0, setTargetAtTime: vi.fn() },
-      connect: vi.fn(),
-      disconnect: vi.fn(),
-    };
-    const createBufferSource = vi.fn(() => source);
-    vi.stubGlobal(
-      'AudioContext',
-      class {
-        state = 'suspended';
-        sampleRate = 128;
-        currentTime = 0;
-        destination = {};
-        resume() {
-          return pending;
-        }
-        createBuffer() {
-          return { getChannelData: () => new Float32Array(2304) };
-        }
-        createBufferSource = createBufferSource;
-        createGain() {
-          return gain;
-        }
-      },
-    );
+  it('cancels an in-flight track when switching modes and updates volume without restarting', async () => {
+    const starts: (() => void)[] = [];
+    const elements = mockMedia(() => new Promise<void>((resolve) => starts.push(resolve)));
     const engine = new AudioEngine();
     const first = engine.setAmbient('rain', 0.3);
     const second = engine.setAmbient('cafe', 0.4);
-    resume();
+    starts[1]!();
     await Promise.all([first, second]);
-    expect(createBufferSource).toHaveBeenCalledTimes(1);
+    expect(elements[0]?.pause).toHaveBeenCalledOnce();
+    expect(elements[1]?.pause).not.toHaveBeenCalled();
     await engine.setAmbient('cafe', 0.8);
-    expect(gain.gain.setTargetAtTime).toHaveBeenCalledOnce();
-    expect(createBufferSource).toHaveBeenCalledTimes(1);
+    expect(elements).toHaveLength(2);
+    expect(elements[1]?.volume).toBe(0.8);
     await engine.setAmbient('off', 0);
-    expect(stop).toHaveBeenCalledTimes(1);
+    expect(elements[1]?.pause).toHaveBeenCalledOnce();
+    starts[0]!();
   });
+  it.each([
+    ['rain', 'rain.mp3'],
+    ['cafe', 'coffee.mp3'],
+    ['forest', 'forest.mp3'],
+  ] as const)(
+    'loops the bundled %s track when there is no custom source',
+    async (sound, filename) => {
+      const elements = mockMedia();
+      const engine = new AudioEngine();
+      await engine.setAmbient(sound, 0.35);
+      expect(elements[0]?.src).toContain(filename);
+      expect(elements[0]).toMatchObject({ loop: true, volume: 0.35 });
+      await engine.setAmbient(sound, 0.6);
+      expect(elements).toHaveLength(1);
+      expect(elements[0]?.volume).toBe(0.6);
+      await engine.setAmbient('off', 0);
+      expect(elements[0]?.pause).toHaveBeenCalledOnce();
+    },
+  );
 });
 
 function mockMedia(play: () => Promise<void> = () => Promise.resolve()) {
