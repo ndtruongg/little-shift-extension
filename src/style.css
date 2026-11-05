@@ -581,7 +581,7 @@ h2 {
 .room-label {
   position: absolute;
   left: 13px;
-  bottom: 13px;
+  top: 13px;
   font-size: 9px;
   background: #172035db;
   border: 1px solid #6b718267;
@@ -1767,7 +1767,7 @@ input[type='range']::-moz-range-thumb {
   .room-label {
     font-size: 8px;
     left: 10px;
-    bottom: 10px;
+    top: 10px;
   }
   .room-motion {
     bottom: 10px;

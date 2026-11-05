@@ -3,6 +3,36 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useAppStore } from '../stores/app';
 import PixelIcon from './PixelIcon.vue';
 const app = useAppStore();
+const scene = computed(() =>
+  app.state.settings.ambient === 'off' ? 'rain' : app.state.settings.ambient,
+);
+const palettes = {
+  rain: {
+    label: 'Mưa đêm',
+    view: 'đêm mưa',
+    wall: ['#383348', '#524052'],
+    sky: ['#101d3d', '#294974'],
+    floor: ['#76514b', '#b27854'],
+  },
+  cafe: {
+    label: 'Quán cà phê',
+    view: 'quán cà phê ánh vàng',
+    wall: ['#4b3540', '#755044'],
+    sky: ['#ae776f', '#e2b17d'],
+    floor: ['#855541', '#c69260'],
+  },
+  forest: {
+    label: 'Rừng xanh',
+    view: 'nhìn ra rừng xanh và sương sớm',
+    wall: ['#2b3b3b', '#4d604a'],
+    sky: ['#bccba7', '#668d78'],
+    floor: ['#525846', '#9b885b'],
+  },
+} as const;
+const palette = computed(() => palettes[scene.value]);
+const roomTitle = computed(() =>
+  app.state.settings.ambient === 'off' ? 'Góc nhỏ của riêng bạn' : palette.value.label,
+);
 const visible = ref(!document.hidden);
 const onVisibility = () => {
   visible.value = !document.hidden;
@@ -45,6 +75,12 @@ const buildings = [
   { x: 571, y: 92, w: 47 },
   { x: 619, y: 145, w: 29 },
 ];
+const forestTrees = Array.from({ length: 13 }, (_, i) => ({
+  x: 306 + i * 28,
+  y: 40 + ((i * 31) % 65),
+  scale: 0.65 + (i % 3) * 0.2,
+  color: ['#31564c', '#406950', '#527b55'][i % 3],
+}));
 const floorMarks = Array.from({ length: 80 }, (_, i) => ({
   x: (i * 71) % 640,
   y: 346 + ((i * 31) % 94),
@@ -53,6 +89,7 @@ const floorMarks = Array.from({ length: 80 }, (_, i) => ({
 </script>
 <template>
   <div
+    :data-scene="scene"
     :class="[
       'pixel-room',
       { animated: animate, typing, resting: app.state.timer.mode !== 'focus' },
@@ -63,21 +100,21 @@ const floorMarks = Array.from({ length: 80 }, (_, i) => ({
       xmlns="http://www.w3.org/2000/svg"
       shape-rendering="crispEdges"
       role="img"
-      aria-label="Căn phòng pixel đêm mưa: một bạn đeo tai nghe làm việc bên đèn vàng, cây xanh và mèo đang ngủ."
+      :aria-label="`Căn phòng pixel ${palette.view}: một bạn đeo tai nghe làm việc bên đèn vàng, cây xanh và mèo đang ngủ.`"
       preserveAspectRatio="xMidYMid slice"
     >
       <defs>
         <linearGradient id="wall" x2="1" y2="1">
-          <stop stop-color="#383348" />
-          <stop offset="1" stop-color="#524052" />
+          <stop :stop-color="palette.wall[0]" />
+          <stop offset="1" :stop-color="palette.wall[1]" />
         </linearGradient>
         <linearGradient id="night" x2="0" y2="1">
-          <stop stop-color="#101d3d" />
-          <stop offset="1" stop-color="#294974" />
+          <stop :stop-color="palette.sky[0]" />
+          <stop offset="1" :stop-color="palette.sky[1]" />
         </linearGradient>
         <linearGradient id="floor" x2="0" y2="1">
-          <stop stop-color="#76514b" />
-          <stop offset="1" stop-color="#b27854" />
+          <stop :stop-color="palette.floor[0]" />
+          <stop offset="1" :stop-color="palette.floor[1]" />
         </linearGradient>
         <radialGradient id="warmglow">
           <stop stop-color="#ffc769" stop-opacity=".28" />
@@ -101,18 +138,105 @@ const floorMarks = Array.from({ length: 80 }, (_, i) => ({
         fill="#d89560"
         opacity=".26"
       />
-      <!-- Rainy window and city -->
+      <!-- The window landscape follows the selected sound; the room stays shared. -->
       <path d="M292 0h348v276H292z" fill="#171c30" />
       <path d="M300 5h332v257H300z" fill="url(#night)" />
       <g clip-path="url(#window-clip)">
-        <path d="M554 22h15v3h6v14h-6v5h-15v-4h-5V27h5z" fill="#acbec1" opacity=".35" />
-        <g v-for="(b, i) in buildings" :key="`building${i}`">
-          <path :d="`M${b.x} ${b.y}h${b.w}v140h-${b.w}z`" :fill="i % 2 ? '#15233f' : '#1c3151'" />
+        <g v-if="scene === 'forest'" data-landscape="forest">
+          <path d="M552 26h22v5h6v18h-6v5h-22v-5h-6V31h6z" fill="#f1dfa4" opacity=".8" />
           <path
-            :d="`M${b.x + 8} ${b.y + 11}h4v8h-4zm12 0h4v8h-4zm-12 19h4v8h-4zm12 19h4v8h-4zm-12 20h4v8h-4z`"
-            :fill="i % 2 ? '#d6b86c' : '#7195b6'"
-            opacity=".8"
+            d="M300 155h22v-16h25v-23h24v-19h30v17h25v22h34v-29h30V91h32v25h29v24h27v-19h31v-15h31v158H300z"
+            fill="#8aa78c"
           />
+          <path
+            d="M300 195h28v-17h31v-21h30v19h34v-27h32v-17h25v28h31v-13h34v24h29v-18h32v-14h34v125H300z"
+            fill="#60846a"
+          />
+          <g
+            v-for="(tree, i) in forestTrees"
+            :key="`tree${i}`"
+            :transform="`translate(${tree.x} ${tree.y}) scale(${tree.scale})`"
+          >
+            <path d="M-3 90h6v92h-6z" fill="#324e40" />
+            <path
+              d="M-4 0h8v12h8v12h8v12h12v14H-32V36h12V24h8V12h8zM-12 40h24v16h12v14h12v16H-36V70h12V56h12zM-20 78h40v14h12v14h12v18H-44v-18h12V92h12z"
+              :fill="tree.color"
+            />
+            <path
+              d="M-4 15h4v18h-8v12h-12v-6h8V27h8zM-12 58h5v17h-15v-6h10zM-20 95h5v17h-16v-6h11z"
+              fill="#aac38a"
+              opacity=".3"
+            />
+          </g>
+          <path
+            d="M300 139h105v4H300zm96 29h236v5H396zm-96 53h198v5H300zm163 21h169v4H463z"
+            fill="#d9e5bd"
+            opacity=".22"
+          />
+          <path
+            d="M300 252h21v-8h26v5h31v-9h32v8h41v-11h24v7h39v-8h31v10h29v-12h25v8h33v22H300z"
+            fill="#315a47"
+          />
+        </g>
+        <g v-else>
+          <path
+            d="M554 22h15v3h6v14h-6v5h-15v-4h-5V27h5z"
+            :fill="scene === 'cafe' ? '#ffe2a2' : '#acbec1'"
+            :opacity="scene === 'cafe' ? 0.8 : 0.35"
+          />
+          <g v-for="(b, i) in buildings" :key="`building${i}`">
+            <path
+              :d="`M${b.x} ${b.y}h${b.w}v140h-${b.w}z`"
+              :fill="
+                scene === 'cafe' ? (i % 2 ? '#72535a' : '#8f6864') : i % 2 ? '#15233f' : '#1c3151'
+              "
+            />
+            <path
+              :d="`M${b.x + 8} ${b.y + 11}h4v8h-4zm12 0h4v8h-4zm-12 19h4v8h-4zm12 19h4v8h-4zm-12 20h4v8h-4z`"
+              :fill="scene === 'cafe' ? '#ffdc9a' : i % 2 ? '#d6b86c' : '#7195b6'"
+              opacity=".8"
+            />
+          </g>
+        </g>
+        <g v-if="scene === 'cafe'" data-landscape="cafe">
+          <path d="M300 154h332v110H300z" fill="#9b6b50" />
+          <path d="M315 164h308v100H315z" fill="#67483e" />
+          <path d="M325 172h92v87h-92zm109 0h57v87h-57zm74 0h104v87H508z" fill="#36353b" />
+          <path d="M332 179h78v63h-78zm109 0h43v63h-43zm74 0h90v63h-90z" fill="#d5aa70" />
+          <path
+            d="M336 182h70v3h-70zm183 0h82v3h-82zM365 177h5v67h-5zm193 0h5v67h-5z"
+            fill="#f7d395"
+          />
+          <path d="M447 187h31v42h-31z" fill="#35413b" />
+          <path d="M452 194h21v2h-21zm0 7h16v2h-16zm0 7h19v2h-19zm0 7h14v2h-14z" fill="#d8d5b2" />
+          <path d="M427 80h85v35h-85z" fill="#68463b" />
+          <path d="M431 84h77v27h-77z" fill="#313e3e" />
+          <path
+            d="M449 92h28v15h-24v-4h-4zm28 1h8v10h-8v-3h4v-4h-4zM445 108h38v3h-38z"
+            fill="#f1d29a"
+          />
+          <path d="M458 88v-5h3v-5m6 10v-7h3v-5" fill="none" stroke="#f1d29a" stroke-width="2" />
+          <path d="M300 122h332v8H300z" fill="#4c3a3b" />
+          <path
+            v-for="n in 9"
+            :key="`awning${n}`"
+            :d="`M${300 + (n - 1) * 40} 130h40v24h-5v5h-30v-5h-5z`"
+            :fill="n % 2 ? '#e8cf9d' : '#ad674c'"
+          />
+          <path
+            d="M300 38h50v6h65v5h70v-5h70v-6h77"
+            fill="none"
+            stroke="#59433e"
+            stroke-width="2"
+          />
+          <g v-for="n in 7" :key="`light${n}`">
+            <path
+              :d="`M${310 + n * 40} ${n < 3 || n > 5 ? 43 : 49}v10`"
+              stroke="#59433e"
+              stroke-width="2"
+            />
+            <path :d="`M${307 + n * 40} ${n < 3 || n > 5 ? 51 : 57}h6v7h-6z`" fill="#ffe4a3" />
+          </g>
         </g>
         <path
           d="M303 0v245m28-245v245m52-245v245m49-245v245m40-245v245m49-245v245m50-245v245m42-245v245"
@@ -120,7 +244,7 @@ const floorMarks = Array.from({ length: 80 }, (_, i) => ({
           stroke-width="1"
           opacity=".13"
         />
-        <g class="rain-layer">
+        <g v-if="scene === 'rain'" class="rain-layer" data-landscape="rain">
           <path
             v-for="(drop, i) in rain"
             :key="`rain${i}`"
@@ -370,7 +494,7 @@ const floorMarks = Array.from({ length: 80 }, (_, i) => ({
           ? 'Một chút tập trung, một chút tiến bộ'
           : app.state.timer.mode !== 'focus'
             ? 'Thả lỏng vai, nghỉ ngơi một chút'
-            : 'Góc nhỏ của riêng bạn'
+            : roomTitle
       }}
     </div>
     <button

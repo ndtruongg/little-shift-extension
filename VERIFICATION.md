@@ -10,7 +10,7 @@ Phạm vi: các thay đổi chưa commit trong `little-shift-extension/`, gồm 
 | `pnpm typecheck`                     | Đạt                               |
 | `pnpm test`                          | 101 test đạt trong 7 file         |
 | `pnpm build`                         | Đạt; `dist/` có thể Load unpacked |
-| `node scripts/check-preview.mjs`     | 10 nhóm kiểm tra đạt, không lỗi   |
+| `node scripts/check-preview.mjs`     | 13 nhóm kiểm tra đạt, không lỗi   |
 | `node scripts/check-extension.mjs`   | 7 nhóm kiểm tra đạt, không lỗi    |
 | `node scripts/check-reminders.mjs`   | 14 nhóm kiểm tra đạt, không lỗi   |
 | `node scripts/check-audio-links.mjs` | 14 nhóm kiểm tra đạt, không lỗi   |
@@ -20,6 +20,7 @@ Các script browser chạy trên production build, dùng localhost và profile C
 ## Phạm vi đã xác minh
 
 - Timer: start/pause/resume/reset, hàng đợi command, timestamp, long-break cycle, auto-start, lịch sử ghi một lần, giữ lịch sử khi xóa task. Chromium thật chạy phiên 1 phút với mọi New Tab/popup đóng: hoàn thành đúng một lần; hai tab và popup đồng bộ, một offscreen audio.
+- Khung cảnh: ba mode mưa/cà phê/rừng có cảnh cửa sổ và bảng màu riêng, cùng một căn phòng/nhân vật/mèo; mưa chỉ render ở cảnh Mưa đêm. Desktop/mobile không tràn ngang; cảnh và cài đặt chuyển động giữ sau reload, đồng bộ giữa New Tab; tắt âm thanh trở về cảnh gốc.
 - Task/UI: CRUD, xác nhận xóa/reset, Enter/Escape, export/import/schema sai, reset không chèn demo. Các khung 1366×768, 1440×900, 1366×650 và 390×844 không tràn ngang; reduced motion được áp dụng.
 - Nhắc hạn: tìm lịch gần nhất, batch nhiều task, vô hiệu lịch đã sửa/xóa/xong, chống trùng qua command đồng thời và worker mới, missed reminders, snooze/hủy snooze, mở lại chỉ đặt lịch tương lai. Ngày thực hiện không đổi dueAt. Migration v1/v2, validation ngày/offset/trạng thái nhắc và import/export đã có test.
 - New Tab: bảng nhắc hiển thị tên/hạn kể cả khi quyền thông báo OS bị từ chối; Xem task vượt bộ lọc; Đã xem giữ sau reload và đồng bộ hai tab. Clock UI chung cập nhật nhãn ngày, quá hạn và tiến độ ngày qua nửa đêm; không polling storage.
@@ -54,3 +55,9 @@ Chưa nghe chuông từ loa, nhìn/click banner OS hoặc nút snooze OS, bấm 
 Đóng gói ba file do người dùng cung cấp trong `src/assets/`: rain → Mưa đêm, coffee → Quán cà phê, forest → Rừng xanh. Mọi nguồn dùng cùng media player với loop bật; ưu tiên file đã chọn trong Cài đặt, rồi link riêng, rồi MP3 đóng gói. Đã bỏ phần tạo tiếng nền tổng hợp không còn được dùng; chuông vẫn tổng hợp như trước. Không sửa nội dung MP3 hoặc thêm quyền extension.
 
 Đợt này chạy lại unit test (101 đạt), lint, typecheck/build, preview (10 nhóm đạt) và audio smoke test (14 nhóm đạt). Các kết quả timer/reminder trong bảng thuộc đợt kiểm tra trước, không chạy lại ở lần chỉ thay media này. Chưa trực tiếp nghe độ liền mạch khi nối vòng qua loa; test xác nhận decoder/player lặp, không khẳng định nội dung đầu/cuối file nối hoàn toàn không có khoảng hở.
+
+## Đổi khung cảnh theo âm thanh — 05/11/2026
+
+`PixelRoom.vue` dùng trực tiếp lựa chọn ambient hiện có để đổi palette và cảnh quan SVG; không lưu thêm trạng thái. Ảnh kiểm tra: `output/playwright/room-rain.png`, `room-cafe.png`, `room-forest.png` và các bản `-mobile.png`; ảnh toàn dashboard là `scene-*-desktop.png` trong cùng thư mục.
+
+Đợt này đã chạy lint, build kèm typecheck, 101 unit test và preview smoke test (13 nhóm đạt, không lỗi), gồm reduced motion và hồi quy task/timer/popup/import-export. Các bài kiểm tra extension/reminder/audio trong bảng giữ kết quả đợt trước, không chạy lại cho thay đổi SVG này.

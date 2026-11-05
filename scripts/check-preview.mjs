@@ -48,6 +48,59 @@ try {
     checks.push(`Responsive ${width}x${height}: no overflow; desktop timer controls visible`);
   }
   await page.setViewportSize({ width: 1440, height: 900 });
+  for (const [scene, label] of [
+    ['rain', 'Mưa đêm'],
+    ['cafe', 'Quán cà phê'],
+    ['forest', 'Rừng xanh'],
+  ]) {
+    await page.getByRole('button', { name: label, exact: true }).click();
+    const room = page.locator(`.pixel-room[data-scene="${scene}"]`);
+    await room.waitFor();
+    assert.equal(await room.locator(`[data-landscape="${scene}"]`).count(), 1);
+    assert.equal(await room.locator('.rain-drop').count(), scene === 'rain' ? 55 : 0);
+    assert.equal(await room.locator('.sleeping-cat').count(), 1);
+    await room.screenshot({ path: `output/playwright/room-${scene}.png`, animations: 'disabled' });
+    await page.screenshot({
+      path: `output/playwright/scene-${scene}-desktop.png`,
+      animations: 'disabled',
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= 390));
+    await room.screenshot({
+      path: `output/playwright/room-${scene}-mobile.png`,
+      animations: 'disabled',
+    });
+    await page.setViewportSize({ width: 1440, height: 900 });
+  }
+  checks.push(
+    'Rain/cafe/forest sound modes select distinct Cozy Pixel scenes; only rain shows raindrops; desktop/mobile render without overflow',
+  );
+  await page.getByRole('button', { name: 'Tắt chuyển động', exact: true }).click();
+  await page.locator('.pixel-room[data-scene="forest"]:not(.animated)').waitFor();
+  await page.reload();
+  await page.locator('.pixel-room[data-scene="forest"]:not(.animated)').waitFor();
+  await page.getByRole('button', { name: 'Bật chuyển động', exact: true }).click();
+  await page.locator('.pixel-room[data-scene="forest"].animated').waitFor();
+  checks.push(
+    'Selected scene and motion setting persist after reload; scene changes preserve the shared room/controls',
+  );
+  const sceneTwin = await context.newPage();
+  await sceneTwin.goto(origin);
+  await sceneTwin.locator('.pixel-room[data-scene="forest"]').waitFor();
+  await page.getByRole('button', { name: 'Rừng xanh', exact: true }).click();
+  await page.locator('.pixel-room[data-scene="rain"]').waitFor();
+  await sceneTwin.locator('.pixel-room[data-scene="rain"]').waitFor();
+  assert.equal(
+    await page.evaluate(
+      () => JSON.parse(localStorage.getItem('little-shift-state')).settings.ambient,
+    ),
+    'off',
+  );
+  await sceneTwin.close();
+  await page.bringToFront();
+  checks.push(
+    'Scene selection synchronizes across New Tabs and disabling sound restores the original room',
+  );
   await page.getByRole('button', { name: 'Thêm công việc ↵' }).click();
   const editor = page.getByRole('dialog', { name: 'Một việc nhỏ mới' });
   await editor.getByLabel('Tên công việc').fill('Kiểm thử thao tác bàn phím');
