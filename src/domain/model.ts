@@ -3,12 +3,13 @@ import { z } from 'zod';
 // MV3 disallows dynamic code generation, including a library's CSP capability probe.
 z.config({ jitless: true });
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 export const localDay = (time = Date.now()) => {
   const d = new Date(time);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 const id = z.string().min(1).max(100);
+export const notificationIdSchema = z.string().min(1).max(200);
 const timestamp = z.number().finite().nonnegative().max(8_640_000_000_000_000);
 const day = z
   .string()
@@ -62,6 +63,8 @@ export const settingsSchema = z.object({
   bell: z.enum(['soft', 'bit', 'clear']).default('soft'),
   bellEnabled: z.boolean().default(true),
   bellVolume: z.number().min(0).max(1).default(0.6),
+  taskBellEnabled: z.boolean().default(true),
+  taskBellVolume: z.number().min(0).max(1).default(0.6),
   notifications: z.boolean().default(true),
   ambient: z.enum(['off', 'rain', 'cafe', 'forest']).default('off'),
   ambientVolume: z.number().min(0).max(1).default(0.35),
@@ -70,15 +73,33 @@ export const settingsSchema = z.object({
   animation: z.boolean().default(true),
   dailyGoal: z.number().int().min(1).max(24).default(8),
 });
-export const taskSchema = z.object({
+export const reminderOffsetSchema = z
+  .union([z.literal(0), z.literal(5), z.literal(15), z.literal(30), z.literal(60), z.literal(1440)])
+  .nullable()
+  .default(null);
+export const taskInputSchema = z.object({
   id,
   title: z.string().trim().min(1).max(160),
   day,
   priority: z.enum(['low', 'medium', 'high']),
   estimated: z.number().int().min(1).max(24),
+  dueAt: timestamp.int().nullable().default(null),
+  reminderOffsetMinutes: reminderOffsetSchema,
+});
+export const taskSchema = taskInputSchema.extend({
   completed: z.number().int().min(0).max(100000),
   doneAt: timestamp.nullable(),
   createdAt: timestamp,
+  reminder: z
+    .object({
+      id,
+      scheduledAt: timestamp.nullable(),
+      handledAt: timestamp.nullable(),
+      notificationId: notificationIdSchema.nullable(),
+      dismissedAt: timestamp.nullable().default(null),
+    })
+    .nullable()
+    .default(null),
 });
 const timerSchema = z.object({
   id,
@@ -138,6 +159,28 @@ export const stateSchema = z
       ctx.addIssue({ code: 'custom', message: 'Trạng thái đồng hồ không hợp lệ' });
     if (s.history.some((h) => h.endedAt < h.startedAt))
       ctx.addIssue({ code: 'custom', message: 'Thời điểm kết thúc phiên không hợp lệ' });
+    if (
+      s.tasks.some(
+        (t) =>
+          (t.dueAt === null && t.reminderOffsetMinutes !== null) ||
+          (t.doneAt === null &&
+            t.dueAt !== null &&
+            t.reminderOffsetMinutes !== null &&
+            t.reminder === null) ||
+          (t.reminder !== null &&
+            (t.doneAt !== null ||
+              t.dueAt === null ||
+              t.reminderOffsetMinutes === null ||
+              (t.reminder.scheduledAt === null) === (t.reminder.handledAt === null) ||
+              (t.reminder.notificationId !== null && t.reminder.handledAt === null) ||
+              (t.reminder.dismissedAt !== null &&
+                (t.reminder.handledAt === null || t.reminder.notificationId === null)))),
+      )
+    )
+      ctx.addIssue({ code: 'custom', message: 'Trạng thái lời nhắc không hợp lệ' });
+    const reminderIds = s.tasks.flatMap((t) => (t.reminder ? [t.reminder.id] : []));
+    if (new Set(reminderIds).size !== reminderIds.length)
+      ctx.addIssue({ code: 'custom', message: 'ID lời nhắc bị trùng' });
   });
 export type Mode = z.infer<typeof modeSchema>;
 export type Settings = z.infer<typeof settingsSchema>;
@@ -200,6 +243,8 @@ export function decodeState(raw: unknown): State {
       schemaVersion: 2,
     };
   }
+  if ('schemaVersion' in value && value.schemaVersion === 2)
+    value = { ...value, schemaVersion: SCHEMA_VERSION };
   const parsed = stateSchema.safeParse(value);
   if (!parsed.success)
     throw new Error(`Dữ liệu không hợp lệ: ${parsed.error.issues[0]?.message ?? 'Sai schema'}.`);

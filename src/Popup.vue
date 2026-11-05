@@ -6,6 +6,7 @@ import { openDashboard } from './platform/adapter';
 import PixelIcon from './components/PixelIcon.vue';
 import TimerControls from './components/TimerControls.vue';
 import ConfirmDialog from './components/ConfirmDialog.vue';
+import TaskReminderNotice from './components/TaskReminderNotice.vue';
 const app = useAppStore();
 const task = computed(() =>
   app.state.timer.status === 'idle'
@@ -17,11 +18,12 @@ const task = computed(() =>
 onMounted(() => app.init());
 </script>
 <template>
-  <main class="popup-shell">
+  <main :class="['popup-shell', { 'has-reminders': app.reminderBatches.length > 0 }]">
     <header class="popup-header">
       <PixelIcon name="star" :size="25" />
       <h1>LITTLE SHIFT</h1>
     </header>
+    <TaskReminderNotice compact @reveal="openDashboard($event)" />
     <p class="popup-mode">
       {{ modeLabel[app.state.timer.mode]
       }}<span>{{
@@ -38,7 +40,7 @@ onMounted(() => app.init());
         task ?? 'Một việc nhỏ, một phiên tập trung.'
       }}</span>
     </p>
-    <TimerControls /><button class="button secondary popup-dashboard" @click="openDashboard">
+    <TimerControls /><button class="button secondary popup-dashboard" @click="openDashboard()">
       Mở góc tập trung<PixelIcon name="arrow" :size="16" />
     </button>
     <p v-if="app.error" class="inline-error" role="alert">{{ app.error }}</p>
@@ -46,3 +48,21 @@ onMounted(() => app.init());
     <ConfirmDialog />
   </main>
 </template>
+<style scoped>
+.has-reminders {
+  padding: 16px;
+}
+.has-reminders .popup-mode {
+  margin-top: 14px;
+}
+.has-reminders .popup-timer {
+  font-size: 48px;
+  line-height: 1.2;
+}
+.has-reminders .popup-task {
+  margin-bottom: 12px;
+}
+.has-reminders footer {
+  margin-top: 12px;
+}
+</style>

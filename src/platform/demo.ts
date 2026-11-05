@@ -18,6 +18,9 @@ export function previewDemo(): State {
     completed: i > 2 ? 1 : 0,
     doneAt: i > 2 ? now - i * 3600000 : null,
     createdAt: now - 30000000 + i,
+    dueAt: null,
+    reminderOffsetMinutes: null,
+    reminder: null,
   }));
   state.activeTaskId = state.tasks[0]!.id;
   [2, 3, 1, 4, 2, 3, 3].forEach((count, index) => {

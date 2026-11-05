@@ -4,6 +4,7 @@ import { modeLabel } from './domain/model';
 import { useAppStore } from './stores/app';
 import PixelIcon from './components/PixelIcon.vue';
 import TaskPanel from './components/TaskPanel.vue';
+import TaskReminderNotice from './components/TaskReminderNotice.vue';
 import PixelRoom from './components/PixelRoom.vue';
 import TimerControls from './components/TimerControls.vue';
 import ModePanel from './components/ModePanel.vue';
@@ -13,6 +14,7 @@ import SettingsDialog from './components/SettingsDialog.vue';
 import ConfirmDialog from './components/ConfirmDialog.vue';
 const app = useAppStore();
 const settingsOpen = ref(false);
+const taskPanel = ref<InstanceType<typeof TaskPanel>>();
 const dismissed = ref('');
 const date = computed(() =>
   new Intl.DateTimeFormat('vi-VN', {
@@ -20,7 +22,7 @@ const date = computed(() =>
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
-  }).format(app.now),
+  }).format(app.taskNow),
 );
 const completion = computed(() =>
   app.state.lastCompletion &&
@@ -69,7 +71,7 @@ onMounted(() => app.init());
       </button>
     </p>
     <main class="dashboard">
-      <TaskPanel />
+      <TaskPanel ref="taskPanel" />
       <section
         id="focus-workspace"
         class="focus-workspace pixel-panel"
@@ -152,38 +154,70 @@ onMounted(() => app.init());
         }}<span class="footer-spark">✦</span></span
       >
     </footer>
-    <div v-if="completion" class="completion-toast pixel-panel" role="status">
-      <PixelIcon name="bell" class="gold" :size="30" />
-      <div>
-        <strong>{{ modeLabel[completion.mode] }} hoàn thành!</strong>
-        <p>
-          Đến lúc {{ modeLabel[completion.nextMode].toLowerCase() }} ·
-          {{ app.state.settings[completion.nextMode] }} phút.
-        </p>
+    <div class="dashboard-notices">
+      <TaskReminderNotice @reveal="taskPanel?.focusTask($event, 'start')" />
+      <div v-if="completion" class="completion-toast pixel-panel" role="status">
+        <PixelIcon name="bell" class="gold" :size="30" />
+        <div>
+          <strong>{{ modeLabel[completion.mode] }} hoàn thành!</strong>
+          <p>
+            Đến lúc {{ modeLabel[completion.nextMode].toLowerCase() }} ·
+            {{ app.state.settings[completion.nextMode] }} phút.
+          </p>
+        </div>
+        <button
+          v-if="app.state.timer.status === 'idle'"
+          class="button primary"
+          @click="
+            app.command({ type: 'timer.start' });
+            dismissed = completion.id;
+          "
+        >
+          Bắt đầu {{ completion.nextMode === 'focus' ? 'Focus' : 'nghỉ' }}</button
+        ><button
+          class="small-icon"
+          aria-label="Đóng thông báo hoàn thành"
+          @click="dismissed = completion.id"
+        >
+          <PixelIcon name="close" :size="16" />
+        </button>
       </div>
-      <button
-        v-if="app.state.timer.status === 'idle'"
-        class="button primary"
-        @click="
-          app.command({ type: 'timer.start' });
-          dismissed = completion.id;
-        "
-      >
-        Bắt đầu {{ completion.nextMode === 'focus' ? 'Focus' : 'nghỉ' }}</button
-      ><button
-        class="small-icon"
-        aria-label="Đóng thông báo hoàn thành"
-        @click="dismissed = completion.id"
-      >
-        <PixelIcon name="close" :size="16" />
-      </button>
-    </div>
-    <div v-if="app.error" class="error-toast pixel-panel" role="alert">
-      <span>{{ app.error }}</span
-      ><button class="small-icon" aria-label="Đóng thông báo lỗi" @click="app.error = ''">
-        <PixelIcon name="close" :size="14" />
-      </button>
+      <div v-if="app.error" class="error-toast pixel-panel" role="alert">
+        <span>{{ app.error }}</span
+        ><button class="small-icon" aria-label="Đóng thông báo lỗi" @click="app.error = ''">
+          <PixelIcon name="close" :size="14" />
+        </button>
+      </div>
     </div>
     <SettingsDialog :open="settingsOpen" @close="settingsOpen = false" /><ConfirmDialog />
   </div>
 </template>
+
+<style scoped>
+.dashboard-notices {
+  position: fixed;
+  z-index: 10;
+  right: 20px;
+  bottom: 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
+  max-height: calc(100dvh - 104px);
+  max-width: calc(100vw - 32px);
+  padding: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.dashboard-notices > .completion-toast,
+.dashboard-notices > .error-toast {
+  flex-shrink: 0;
+  max-width: 100%;
+}
+@media (max-width: 520px) {
+  .dashboard-notices {
+    right: 12px;
+    bottom: 12px;
+  }
+}
+</style>

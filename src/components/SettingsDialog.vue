@@ -215,7 +215,7 @@ async function importData(event: Event) {
     if (
       await confirmAction(
         'Thay thế dữ liệu?',
-        `Nhập ${data.tasks.length} công việc và ${data.history.length} phiên. Dữ liệu hiện tại sẽ bị thay thế; timer và âm thanh được đặt lại. File âm thanh cục bộ không có trong JSON, bạn cần chọn lại sau khi nhập.`,
+        `Nhập ${data.tasks.length} công việc và ${data.history.length} phiên. Dữ liệu hiện tại sẽ bị thay thế; timer và âm thanh được đặt lại. File âm thanh cục bộ không có trong JSON, bạn cần chọn lại sau khi nhập. Lời nhắc chưa xử lý đã đến giờ sẽ được nhắc một lần sau khi nhập.`,
         'Nhập dữ liệu',
       )
     ) {
@@ -351,6 +351,18 @@ async function requestNotification() {
           ><label class="toggle-row"
             ><span>Thông báo khi hết phiên</span
             ><input v-model="draft.notifications" type="checkbox"
+          /></label>
+          <label class="toggle-row"
+            ><span>Chuông nhắc hạn công việc</span
+            ><input v-model="draft.taskBellEnabled" type="checkbox"
+          /></label>
+          <label class="field"
+            >Âm lượng chuông nhắc task · {{ Math.round(draft.taskBellVolume * 100) }}%<input
+              v-model.number="draft.taskBellVolume"
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
           /></label>
           <p class="muted small">
             Hệ điều hành hoặc chế độ Không làm phiền có thể chặn thông báo. Chrome cần đang hoạt

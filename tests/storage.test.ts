@@ -19,7 +19,7 @@ describe('schema validation and migration', () => {
       ...v1
     } = initialState();
     expect(decodeState({ ...v1, schemaVersion: 1 })).toMatchObject({
-      schemaVersion: 2,
+      schemaVersion: 3,
       revision: 0,
       focusCount: 0,
       lastCompletion: null,
@@ -43,7 +43,15 @@ describe('schema validation and migration', () => {
       state,
       {
         type: 'task.save',
-        task: { id: 'task', title: 'One', day: '2026-11-04', priority: 'low', estimated: 1 },
+        task: {
+          dueAt: null,
+          reminderOffsetMinutes: null,
+          id: 'task',
+          title: 'One',
+          day: '2026-11-04',
+          priority: 'low',
+          estimated: 1,
+        },
       },
       0,
     );

@@ -3,6 +3,14 @@ import { formatTime, remaining } from '../domain/timer';
 import { modeLabel, type State } from '../domain/model';
 import { chromeStorage } from '../platform/storage';
 import {
+  TASK_ALARM,
+  TASK_NOTIFICATION_PREFIX,
+  nextReminderAt,
+  formatDue,
+  notificationTask,
+  isUnreadReminder,
+} from '../domain/reminders';
+import {
   ambientPlayback,
   previewRequest,
   type AudioRequest,
@@ -46,6 +54,24 @@ async function audio(message: AudioRequest) {
   if (!response?.ok) throw new Error(response?.error ?? 'Không thể phát âm thanh.');
 }
 async function sync(state: State) {
+  const next = nextReminderAt(state);
+  const reminderAlarm = await chrome.alarms.get(TASK_ALARM);
+  if (next === null) {
+    if (reminderAlarm) await chrome.alarms.clear(TASK_ALARM);
+  } else if (!reminderAlarm || reminderAlarm.scheduledTime !== next) {
+    await chrome.alarms.create(TASK_ALARM, { when: next });
+  }
+  const validNotifications = new Set(
+    state.tasks.flatMap((task) =>
+      task.doneAt === null && task.reminder?.notificationId ? [task.reminder.notificationId] : [],
+    ),
+  );
+  const notifications = await chrome.notifications.getAll();
+  await Promise.all(
+    Object.keys(notifications)
+      .filter((id) => id.startsWith(TASK_NOTIFICATION_PREFIX) && !validNotifications.has(id))
+      .map((id) => chrome.notifications.clear(id)),
+  );
   const t = state.timer;
   const endAlarm = await chrome.alarms.get(END_ALARM);
   if (t.status === 'running') {
@@ -57,18 +83,25 @@ async function sync(state: State) {
     await chrome.alarms.clear(END_ALARM);
     await chrome.alarms.clear(BADGE_ALARM);
   }
-  await chrome.action.setBadgeBackgroundColor({ color: '#FFD580' });
+  const unreadCount = state.tasks.reduce(
+    (count, task) => count + Number(isUnreadReminder(task)),
+    0,
+  );
+  await chrome.action.setBadgeBackgroundColor({ color: unreadCount ? '#FFAD87' : '#FFD580' });
   await chrome.action.setBadgeTextColor({ color: '#151B2D' });
   await chrome.action.setBadgeText({
-    text:
-      t.status === 'running'
+    text: unreadCount
+      ? unreadCount > 99
+        ? '99+'
+        : String(unreadCount)
+      : t.status === 'running'
         ? `${Math.ceil(remaining(t, Date.now()) / 60000)}m`
         : t.status === 'paused'
           ? 'Ⅱ'
           : '',
   });
   await chrome.action.setTitle({
-    title: `Little Shift · ${modeLabel[t.mode]} · ${formatTime(remaining(t, Date.now()))}`,
+    title: `Little Shift · ${unreadCount ? `${unreadCount} công việc đến giờ nhắc chưa xem · ` : ''}${modeLabel[t.mode]} · ${formatTime(remaining(t, Date.now()))}${t.status === 'paused' ? ' · Tạm dừng' : t.status === 'idle' ? ' · Sẵn sàng' : ''}`,
   });
   const playback = ambientPlayback(state.settings);
   const ambient = JSON.stringify(playback);
@@ -91,6 +124,40 @@ async function sync(state: State) {
 }
 const coordinator = new Coordinator(chromeStorage, {
   sync,
+  async remind(batch, state) {
+    const first = batch.tasks[0]!;
+    await Promise.allSettled([
+      chrome.notifications.create(batch.id, {
+        type: 'basic',
+        iconUrl: chrome.runtime.getURL('icons/128.png'),
+        title:
+          batch.tasks.length === 1
+            ? `Nhắc hạn · ${first.title}`
+            : `${batch.tasks.length} công việc đến giờ nhắc`,
+        message:
+          batch.tasks
+            .slice(0, 3)
+            .map((task) => `${task.title} · Hạn ${formatDue(task.dueAt)}`)
+            .join('\n') +
+          (batch.tasks.length > 3 ? `\nVà ${batch.tasks.length - 3} công việc khác.` : ''),
+        buttons: [{ title: 'Nhắc sau 10 phút' }],
+        silent: true,
+      }),
+      state.settings.taskBellEnabled
+        ? audio({
+            target: 'audio',
+            type: 'bell',
+            id: batch.id,
+            bell: state.settings.bell,
+            volume: state.settings.taskBellVolume,
+          })
+        : Promise.resolve(),
+    ]).then((results) =>
+      results.forEach((result) => {
+        if (result.status === 'rejected') console.error(result.reason);
+      }),
+    );
+  },
   async complete(completion, state) {
     // State already persisted: retries and simultaneous tabs cannot emit this completion again.
     await Promise.allSettled([
@@ -141,11 +208,16 @@ const recover = () => {
   void coordinator.dispatch({ type: 'get' }).catch(console.error);
 };
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if ([END_ALARM, BADGE_ALARM].includes(alarm.name)) recover();
+  if ([END_ALARM, BADGE_ALARM, TASK_ALARM].includes(alarm.name)) recover();
 });
 chrome.runtime.onStartup.addListener(recover);
 chrome.runtime.onInstalled.addListener(recover);
-chrome.notifications.onButtonClicked.addListener((notificationId) => {
+chrome.notifications.onButtonClicked.addListener((notificationId, buttonIndex) => {
+  if (buttonIndex !== 0) return;
+  if (notificationId.startsWith(TASK_NOTIFICATION_PREFIX)) {
+    void coordinator.dispatch({ type: 'reminder.snooze', notificationId }).catch(console.error);
+    return;
+  }
   void coordinator
     .dispatch({ type: 'get' })
     .then((state) => {
@@ -158,7 +230,17 @@ chrome.notifications.onButtonClicked.addListener((notificationId) => {
     })
     .catch(console.error);
 });
-chrome.notifications.onClicked.addListener(() => {
-  void chrome.tabs.create({ url: chrome.runtime.getURL('index.html') });
+chrome.notifications.onClicked.addListener((notificationId) => {
+  void coordinator
+    .dispatch({ type: 'get' })
+    .then((state) => {
+      const task = notificationTask(state, notificationId);
+      return chrome.tabs.create({
+        url: chrome.runtime.getURL(
+          `index.html${task ? `#task=${encodeURIComponent(task.id)}` : ''}`,
+        ),
+      });
+    })
+    .catch(console.error);
 });
 recover();

@@ -1,6 +1,7 @@
 import { applyCommand, reconcile } from './timer';
 import { commandSchema, type AudioPreviewCommand } from './protocol';
 import type { Completion, State } from './model';
+import { claimDueReminders, type ReminderBatch } from './reminders';
 
 export interface StorageAdapter {
   read(): Promise<State>;
@@ -12,6 +13,7 @@ export interface CoordinatorEffects {
   sync(state: State): Promise<void>;
   complete(completion: Completion, state: State): Promise<void>;
   preview(command: AudioPreviewCommand, state: State): Promise<void>;
+  remind?(batch: ReminderBatch, state: State): Promise<void>;
 }
 export class Coordinator {
   private tail: Promise<unknown> = Promise.resolve();
@@ -34,23 +36,22 @@ export class Coordinator {
         await this.effects.complete(completion, state).catch(console.error);
       }
       const next = applyCommand(state, command, now);
-      const isPreview = ['audio.preview', 'audio.ambientPreview', 'audio.previewStop'].includes(
-        command.type,
-      );
-      if (command.type !== 'get' && !isPreview) {
+      const isPreview =
+        command.type === 'audio.preview' ||
+        command.type === 'audio.ambientPreview' ||
+        command.type === 'audio.previewStop';
+      // Apply mutations before checking old alarms, then persist command + claims together.
+      const batch = claimDueReminders(next, now);
+      if ((command.type !== 'get' && !isPreview) || batch) {
         next.revision = state.revision + 1;
         await this.storage.write(next);
         if (command.type === 'data.reset') await this.storage.clearRecovery?.();
         if (command.type === 'data.reset' || command.type === 'data.import')
           await this.storage.clearLocalAudio?.();
       }
+      if (batch) await this.effects.remind?.(batch, next).catch(console.error);
       await this.effects.sync(next);
-      if (
-        command.type === 'audio.preview' ||
-        command.type === 'audio.ambientPreview' ||
-        command.type === 'audio.previewStop'
-      )
-        await this.effects.preview(command, next);
+      if (isPreview) await this.effects.preview(command, next);
       return next;
     });
     this.tail = operation.catch(() => undefined);

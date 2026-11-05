@@ -3,8 +3,9 @@ import {
   ambientSoundSchema,
   audioUrlSchema,
   modeSchema,
+  notificationIdSchema,
   settingsSchema,
-  taskSchema,
+  taskInputSchema,
   type State,
 } from './model';
 
@@ -17,8 +18,11 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('timer.mode'), mode: modeSchema, confirmed: z.boolean().optional() }),
   z.object({
     type: z.literal('task.save'),
-    task: taskSchema.omit({ createdAt: true, doneAt: true, completed: true }),
+    task: taskInputSchema,
+    pastReminder: z.enum(['now', 'skip']).optional(),
   }),
+  z.object({ type: z.literal('reminder.snooze'), notificationId: notificationIdSchema }),
+  z.object({ type: z.literal('reminder.dismiss'), notificationId: notificationIdSchema }),
   z.object({ type: z.literal('task.toggle'), id: key }),
   z.object({ type: z.literal('task.delete'), id: key }),
   z.object({ type: z.literal('task.select'), id: key.nullable() }),

@@ -9,6 +9,7 @@ import {
 import { decodeState, type State } from '../domain/model';
 import { AudioEngine } from '../audio/engine';
 import { previewStorage, STORAGE_KEY } from './storage';
+import { nextReminderAt, formatDue } from '../domain/reminders';
 
 export const isExtension =
   typeof chrome !== 'undefined' && !!chrome.runtime?.id && !!chrome.storage?.local;
@@ -133,15 +134,18 @@ if (!isExtension) {
     async sync(state) {
       emit(state);
       if (wakeup) clearTimeout(wakeup);
-      wakeup =
-        state.timer.status === 'running'
-          ? setTimeout(
-              () => {
-                void send({ type: 'get' }).catch(console.error);
-              },
-              Math.max(0, state.timer.endAt! - Date.now()),
-            )
-          : null;
+      const deadlines = [
+        state.timer.status === 'running' ? state.timer.endAt : null,
+        nextReminderAt(state),
+      ].filter((at): at is number => at !== null);
+      wakeup = deadlines.length
+        ? setTimeout(
+            () => {
+              void send({ type: 'get' }).catch(console.error);
+            },
+            Math.min(2147483647, Math.max(0, Math.min(...deadlines) - Date.now())),
+          )
+        : null;
       const playback = ambientPlayback(state.settings);
       const key = JSON.stringify(playback);
       if (key !== ambientKey) {
@@ -151,6 +155,36 @@ if (!isExtension) {
           ...playback,
         }).catch(reportAudioError);
         ambientKey = key;
+      }
+    },
+    async remind(batch, state) {
+      if (state.settings.taskBellEnabled)
+        await applyAudio({
+          target: 'audio',
+          type: 'bell',
+          id: batch.id,
+          bell: state.settings.bell,
+          volume: state.settings.taskBellVolume,
+        }).catch(reportAudioError);
+      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        const first = batch.tasks[0]!;
+        const notification = new Notification(
+          batch.tasks.length === 1
+            ? `Nhắc hạn · ${first.title}`
+            : `${batch.tasks.length} công việc đến giờ nhắc`,
+          {
+            body: batch.tasks
+              .slice(0, 3)
+              .map((task) => `${task.title} · Hạn ${formatDue(task.dueAt)}`)
+              .join('\n'),
+            tag: batch.id,
+            icon: '/icons/128.png',
+            silent: true,
+          },
+        );
+        notification.onclick = () => {
+          window.open(`/#task=${encodeURIComponent(first.id)}`, '_blank', 'noopener');
+        };
       }
     },
     async complete(completion, state) {
@@ -232,7 +266,8 @@ export function subscribeErrors(listener: (message: string) => void) {
     errorListeners.delete(listener);
   };
 }
-export function openDashboard() {
-  if (isExtension) void chrome.tabs.create({ url: chrome.runtime.getURL('index.html') });
-  else window.open('/', '_blank', 'noopener');
+export function openDashboard(taskId?: string) {
+  const hash = taskId ? `#task=${encodeURIComponent(taskId)}` : '';
+  if (isExtension) void chrome.tabs.create({ url: chrome.runtime.getURL(`index.html${hash}`) });
+  else window.open(`/${hash}`, '_blank', 'noopener');
 }

@@ -10,6 +10,7 @@ export class AudioEngine {
   private sound = 'off';
   private ambientVersion = 0;
   private seen = new Set<string>();
+  private nextBellAt = 0;
   private remote: HTMLAudioElement | null = null;
   private remoteCancel: (() => void) | null = null;
   private sourceUrl = '';
@@ -189,10 +190,13 @@ export class AudioEngine {
         : kind === 'bit'
           ? [440, 554.37, 659.25, 880]
           : [880, 659.25, 880];
+    // A shared audio timeline queues task and Pomodoro bells, even concurrent requests.
+    const startAt = Math.max(ctx.currentTime, this.nextBellAt);
+    this.nextBellAt = startAt + (notes.length - 1) * 0.17 + 1.35;
     notes.forEach((frequency, index) => {
       const oscillator = ctx.createOscillator();
       const gain = ctx.createGain();
-      const at = ctx.currentTime + index * 0.17;
+      const at = startAt + index * 0.17;
       oscillator.type = kind === 'bit' ? 'square' : 'sine';
       oscillator.frequency.value = frequency;
       gain.gain.setValueAtTime(0, at);

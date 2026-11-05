@@ -10,6 +10,7 @@ import {
   type Timer,
 } from './model';
 import type { Command } from './protocol';
+import { reminderTime, scheduleReminder, snoozeNotification, dismissReminder } from './reminders';
 
 export const remaining = (timer: Timer, now: number) =>
   timer.status === 'running' ? Math.max(0, (timer.endAt ?? now) - now) : timer.remainingMs;
@@ -110,20 +111,45 @@ export function applyCommand(state: State, command: Command, now: number): State
       );
       break;
     case 'task.save': {
+      if (command.task.dueAt === null && command.task.reminderOffsetMinutes !== null)
+        throw new Error('Chỉ bật nhắc khi đã có hạn hoàn thành.');
       const index = state.tasks.findIndex((t) => t.id === command.task.id);
-      if (index >= 0) state.tasks[index] = { ...state.tasks[index]!, ...command.task };
-      else {
+      if (index >= 0) {
+        const old = state.tasks[index]!;
+        const task = { ...old, ...command.task };
+        if (old.dueAt !== task.dueAt || old.reminderOffsetMinutes !== task.reminderOffsetMinutes)
+          scheduleReminder(task, now, command.pastReminder);
+        state.tasks[index] = task;
+      } else {
         if (state.tasks.length >= 5000) throw new Error('Đã đạt giới hạn 5.000 công việc.');
-        state.tasks.push({ ...command.task, createdAt: now, doneAt: null, completed: 0 });
+        const task = {
+          ...command.task,
+          createdAt: now,
+          doneAt: null,
+          completed: 0,
+          reminder: null,
+        };
+        scheduleReminder(task, now, command.pastReminder);
+        state.tasks.push(task);
         state.activeTaskId ??= command.task.id;
       }
       break;
     }
     case 'task.toggle': {
       const task = state.tasks.find((t) => t.id === command.id);
-      if (task) task.doneAt = task.doneAt === null ? now : null;
+      if (task) {
+        task.doneAt = task.doneAt === null ? now : null;
+        // Reopening never replays a past reminder (including a previously snoozed one).
+        scheduleReminder(task, now, (reminderTime(task) ?? 0) <= now ? 'skip' : undefined);
+      }
       break;
     }
+    case 'reminder.snooze':
+      snoozeNotification(state, command.notificationId, now);
+      break;
+    case 'reminder.dismiss':
+      dismissReminder(state, command.notificationId, now);
+      break;
     case 'task.delete':
       state.tasks = state.tasks.filter((t) => t.id !== command.id);
       if (state.activeTaskId === command.id) state.activeTaskId = null;

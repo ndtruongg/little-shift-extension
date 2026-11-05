@@ -79,7 +79,8 @@ input[type='checkbox'] {
   height: 19px;
   cursor: pointer;
 }
-input[type='date'] {
+input[type='date'],
+input[type='datetime-local'] {
   color-scheme: dark;
 }
 select {
@@ -1181,10 +1182,6 @@ input[type='range']::-moz-range-thumb {
 }
 .completion-toast,
 .error-toast {
-  position: fixed;
-  z-index: 10;
-  bottom: 22px;
-  right: 24px;
   padding: 17px;
   display: flex;
   align-items: center;
@@ -1206,7 +1203,6 @@ input[type='range']::-moz-range-thumb {
 }
 .error-toast {
   border-color: var(--accent);
-  bottom: 85px;
   max-width: 500px;
   font-size: 12px;
 }

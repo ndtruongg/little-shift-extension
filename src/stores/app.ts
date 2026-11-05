@@ -1,14 +1,28 @@
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { defineStore } from 'pinia';
 import { initialState, type Settings } from '../domain/model';
 import { statistics } from '../domain/statistics';
 import { formatTime, remaining } from '../domain/timer';
 import { send, subscribe, subscribeErrors, isExtension } from '../platform/adapter';
 import type { Command } from '../domain/protocol';
+import { nextTaskLabelAt, unreadReminderBatches } from '../domain/reminders';
 
 export const useAppStore = defineStore('app', () => {
   const state = ref(initialState());
   const now = ref(Date.now());
+  const taskNow = ref(now.value);
+  let taskWakeup: ReturnType<typeof setTimeout> | undefined;
+  function refreshTaskTime() {
+    clearTimeout(taskWakeup);
+    if (document.hidden) return;
+    taskNow.value = Date.now();
+    taskWakeup = setTimeout(
+      refreshTaskTime,
+      Math.max(1, nextTaskLabelAt(state.value.tasks, taskNow.value) - taskNow.value),
+    );
+  }
+  watch(() => state.value.tasks, refreshTaskTime);
+  const reminderBatches = computed(() => unreadReminderBatches(state.value));
   const ready = ref(false);
   const error = ref('');
   subscribeErrors((message) => {
@@ -17,7 +31,7 @@ export const useAppStore = defineStore('app', () => {
   const pendingCommands = ref(0);
   const busy = computed(() => pendingCommands.value > 0);
   const time = computed(() => formatTime(remaining(state.value.timer, now.value)));
-  const stats = computed(() => statistics(state.value, now.value));
+  const stats = computed(() => statistics(state.value, taskNow.value));
   const activeTask = computed(() =>
     state.value.tasks.find((task) => task.id === state.value.activeTaskId),
   );
@@ -43,6 +57,7 @@ export const useAppStore = defineStore('app', () => {
   async function init() {
     await command({ type: 'get' });
     ready.value = true;
+    refreshTaskTime();
     // A repaint heartbeat only. The timer authority is endAt in the coordinator.
     const repaint = () => {
       document.documentElement.dataset.hidden = String(document.hidden);
@@ -54,7 +69,10 @@ export const useAppStore = defineStore('app', () => {
       else
         document.title = `${formatTime(remaining(state.value.timer, Date.now()))} · Little Shift`;
     }, 1000);
-    document.addEventListener('visibilitychange', repaint);
+    document.addEventListener('visibilitychange', () => {
+      repaint();
+      refreshTaskTime();
+    });
   }
   async function saveSettings(patch: Partial<Settings>) {
     return command({ type: 'settings.save', settings: { ...state.value.settings, ...patch } });
@@ -62,6 +80,8 @@ export const useAppStore = defineStore('app', () => {
   return {
     state,
     now,
+    taskNow,
+    reminderBatches,
     ready,
     error,
     busy,

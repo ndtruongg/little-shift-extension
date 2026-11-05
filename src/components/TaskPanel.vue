@@ -1,12 +1,46 @@
 <script setup lang="ts">
-import { computed, nextTick, reactive, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { localDay, type Task } from '../domain/model';
+import {
+  formatDue,
+  fromLocalInput,
+  toLocalInput,
+  isOverdue,
+  isDueSoon,
+  reminderTime,
+} from '../domain/reminders';
 import { useAppStore } from '../stores/app';
 import { confirmAction } from '../stores/confirm';
 import PixelIcon from './PixelIcon.vue';
 import ModalShell from './ModalShell.vue';
 const app = useAppStore();
 const filter = ref('today');
+const sort = ref('manual');
+const focusedTask = ref('');
+async function revealTask() {
+  const params = new URLSearchParams(location.hash.slice(1));
+  const id = params.get('task');
+  if (!app.ready || !id || !app.state.tasks.some((task) => task.id === id)) return;
+  await focusTask(id);
+}
+async function focusTask(id: string, block: ScrollLogicalPosition = 'nearest') {
+  if (!app.state.tasks.some((task) => task.id === id)) return;
+  filter.value = 'all';
+  focusedTask.value = id;
+  await nextTick();
+  const card = document.getElementById(`task-${id}`);
+  card?.scrollIntoView({ block });
+  card?.focus({ preventScroll: true });
+}
+defineExpose({ focusTask });
+watch(() => app.ready, revealTask);
+onMounted(() => {
+  void revealTask();
+  window.addEventListener('hashchange', revealTask);
+});
+onUnmounted(() => {
+  window.removeEventListener('hashchange', revealTask);
+});
 const editing = ref(false);
 const titleInput = ref<HTMLInputElement>();
 const draft = reactive({
@@ -15,20 +49,63 @@ const draft = reactive({
   day: localDay(),
   priority: 'medium' as Task['priority'],
   estimated: 1,
+  dueInput: '',
+  reminderOffsetMinutes: null as Task['reminderOffsetMinutes'],
 });
-const today = computed(() => localDay(app.now));
+const formNow = ref(Date.now());
+const pastChoice = ref<'' | 'now' | 'skip'>('');
+const formError = ref('');
+watch([() => draft.dueInput, () => draft.reminderOffsetMinutes], ([dueInput]) => {
+  if (!dueInput) draft.reminderOffsetMinutes = null;
+  pastChoice.value = '';
+});
+const originalTask = computed(() => app.state.tasks.find((task) => task.id === draft.id));
+function draftDueAt() {
+  const previous = originalTask.value;
+  return previous && draft.dueInput === toLocalInput(previous.dueAt)
+    ? previous.dueAt
+    : fromLocalInput(draft.dueInput);
+}
+const needsPastChoice = computed(() => {
+  try {
+    const dueAt = draftDueAt();
+    const old = originalTask.value;
+    const at = reminderTime({ dueAt, reminderOffsetMinutes: draft.reminderOffsetMinutes });
+    return (
+      old?.doneAt == null &&
+      at !== null &&
+      at <= formNow.value &&
+      (!old || old.dueAt !== dueAt || old.reminderOffsetMinutes !== draft.reminderOffsetMinutes)
+    );
+  } catch {
+    return false;
+  }
+});
+const today = computed(() => localDay(app.taskNow));
 const todayTasks = computed(() => app.state.tasks.filter((t) => t.day === today.value));
 const doneCount = computed(() => todayTasks.value.filter((t) => t.doneAt !== null).length);
 const overdue = computed(() =>
   app.state.tasks.filter((t) => t.day < today.value && t.doneAt === null),
 );
-const visible = computed(() =>
-  app.state.tasks.filter(
-    (t) =>
-      filter.value === 'all' ||
-      (filter.value === 'done' ? t.doneAt !== null : t.day === today.value),
-  ),
-);
+const visible = computed(() => {
+  const tasks = app.state.tasks.filter((task) => {
+    switch (filter.value) {
+      case 'all':
+        return true;
+      case 'done':
+        return task.doneAt !== null;
+      case 'soon':
+        return isDueSoon(task, app.taskNow);
+      case 'overdue':
+        return isOverdue(task, app.taskNow);
+      default:
+        return task.day === today.value;
+    }
+  });
+  return sort.value === 'due'
+    ? tasks.sort((a, b) => (a.dueAt ?? Infinity) - (b.dueAt ?? Infinity))
+    : tasks;
+});
 const priorityLabel = { low: 'Nhẹ nhàng', medium: 'Vừa sức', high: 'Ưu tiên cao' };
 async function edit(task?: Task) {
   Object.assign(
@@ -40,16 +117,47 @@ async function edit(task?: Task) {
           day: task.day,
           priority: task.priority,
           estimated: task.estimated,
+          dueInput: toLocalInput(task.dueAt),
+          reminderOffsetMinutes: task.reminderOffsetMinutes,
         }
-      : { id: crypto.randomUUID(), title: '', day: today.value, priority: 'medium', estimated: 1 },
+      : {
+          id: crypto.randomUUID(),
+          title: '',
+          day: today.value,
+          priority: 'medium',
+          estimated: 1,
+          dueInput: '',
+          reminderOffsetMinutes: null,
+        },
   );
+  formNow.value = Date.now();
+  pastChoice.value = '';
+  formError.value = '';
   editing.value = true;
   await nextTick();
   titleInput.value?.focus();
 }
 async function save() {
-  if (await app.command({ type: 'task.save', task: { ...draft, title: draft.title.trim() } }))
-    editing.value = false;
+  formNow.value = Date.now();
+  formError.value = '';
+  try {
+    const dueAt = draftDueAt();
+    if (needsPastChoice.value && !pastChoice.value) {
+      formError.value = 'Chọn nhắc ngay hoặc bỏ lời nhắc đã qua trước khi lưu.';
+      return;
+    }
+    const { dueInput: _dueInput, ...task } = draft;
+    if (
+      await app.command({
+        type: 'task.save',
+        task: { ...task, dueAt, title: draft.title.trim() },
+        pastReminder: pastChoice.value || undefined,
+      })
+    )
+      editing.value = false;
+  } catch (error) {
+    formError.value = error instanceof Error ? error.message : 'Ngày giờ không hợp lệ.';
+  }
 }
 async function remove(task: Task) {
   if (
@@ -88,6 +196,8 @@ async function remove(task: Task) {
           ['today', 'Hôm nay'],
           ['all', 'Tất cả'],
           ['done', 'Đã xong'],
+          ['soon', 'Sắp đến hạn'],
+          ['overdue', 'Quá hạn'],
         ]"
         :key="value"
         :class="{ selected: filter === value }"
@@ -97,6 +207,13 @@ async function remove(task: Task) {
         {{ label }}
       </button>
     </div>
+    <label class="task-sort"
+      >Sắp xếp
+      <select v-model="sort">
+        <option value="manual">Thứ tự của bạn</option>
+        <option value="due">Hạn gần nhất</option>
+      </select>
+    </label>
     <div class="task-scroll">
       <div v-if="filter === 'today' && overdue.length" class="overdue-section">
         <h3>
@@ -127,10 +244,16 @@ async function remove(task: Task) {
       <ol v-else class="task-list">
         <li
           v-for="task in visible"
+          :id="`task-${task.id}`"
           :key="task.id"
+          tabindex="-1"
           :class="[
             'task-card',
-            { active: app.state.activeTaskId === task.id, done: task.doneAt !== null },
+            {
+              active: app.state.activeTaskId === task.id,
+              done: task.doneAt !== null,
+              'reminder-target': focusedTask === task.id,
+            },
           ]"
         >
           <div class="task-main">
@@ -159,6 +282,21 @@ async function remove(task: Task) {
               /><small v-if="task.estimated > 3">+{{ task.estimated - 3 }}</small></span
             >
           </div>
+          <p
+            v-if="task.dueAt !== null"
+            :class="['task-due', { 'danger-text': isOverdue(task, app.taskNow) }]"
+          >
+            <PixelIcon :name="isOverdue(task, app.taskNow) ? 'flag' : 'calendar'" :size="13" />
+            <span
+              >{{ isOverdue(task, app.taskNow) ? 'Quá hạn · ' : 'Hạn · '
+              }}{{ formatDue(task.dueAt, app.taskNow) }}</span
+            >
+            <PixelIcon
+              v-if="task.reminderOffsetMinutes !== null && task.doneAt === null"
+              name="bell"
+              :size="12"
+            />
+          </p>
           <div class="task-meta">
             <span :class="['priority-tag', task.priority]">{{
               task.doneAt !== null ? 'Đã xong' : priorityLabel[task.priority]
@@ -173,14 +311,14 @@ async function remove(task: Task) {
               <PixelIcon name="edit" :size="13" /></button
             ><button
               class="small-icon"
-              :disabled="app.state.tasks[0]?.id === task.id"
+              :disabled="sort === 'due' || app.state.tasks[0]?.id === task.id"
               :aria-label="`Đưa ${task.title} lên`"
               @click="app.command({ type: 'task.move', id: task.id, direction: 'up' })"
             >
               <PixelIcon name="up" :size="13" /></button
             ><button
               class="small-icon"
-              :disabled="app.state.tasks.at(-1)?.id === task.id"
+              :disabled="sort === 'due' || app.state.tasks.at(-1)?.id === task.id"
               :aria-label="`Đưa ${task.title} xuống`"
               @click="app.command({ type: 'task.move', id: task.id, direction: 'down' })"
             >
@@ -203,10 +341,11 @@ async function remove(task: Task) {
   </section>
   <ModalShell
     :open="editing"
-    :title="app.state.tasks.some((t) => t.id === draft.id) ? 'Sửa công việc' : 'Một việc nhỏ mới'"
+    :title="originalTask ? 'Sửa công việc' : 'Một việc nhỏ mới'"
     @close="editing = false"
   >
     <form class="form-grid" @submit.prevent="save">
+      <p v-if="formError" class="inline-error" role="alert">{{ formError }}</p>
       <p v-if="app.error" class="inline-error" role="alert">
         {{ app.error }}
         <button type="button" class="text-button" @click="app.error = ''">Đóng lỗi</button>
@@ -236,6 +375,48 @@ async function remove(task: Task) {
         /></label>
       </div>
       <label class="field">Ngày thực hiện<input v-model="draft.day" type="date" required /></label>
+      <div class="field-row due-fields">
+        <label class="field"
+          >Hạn hoàn thành<input v-model="draft.dueInput" type="datetime-local"
+        /></label>
+        <label class="field"
+          >Nhắc trước<select v-model="draft.reminderOffsetMinutes" :disabled="!draft.dueInput">
+            <option :value="null">Không nhắc</option>
+            <option :value="0">Đúng hạn</option>
+            <option :value="5">5 phút</option>
+            <option :value="15">15 phút</option>
+            <option :value="30">30 phút</option>
+            <option :value="60">1 giờ</option>
+            <option :value="1440">1 ngày</option>
+          </select></label
+        >
+      </div>
+      <button v-if="draft.dueInput" type="button" class="text-button" @click="draft.dueInput = ''">
+        Xóa hạn hoàn thành
+      </button>
+      <p class="muted small">
+        Hạn là tùy chọn, theo giờ địa phương. Chuyển ngày thực hiện không đổi hạn.
+      </p>
+      <fieldset v-if="needsPastChoice" class="past-reminder">
+        <legend>Thời điểm nhắc đã qua</legend>
+        <p>Lưu công việc sẽ dùng lựa chọn bên dưới; hạn hoàn thành giữ nguyên.</p>
+        <label
+          ><input v-model="pastChoice" name="past-reminder" type="radio" value="now" required />
+          Nhắc ngay sau khi lưu</label
+        >
+        <label
+          ><input v-model="pastChoice" name="past-reminder" type="radio" value="skip" required /> Bỏ
+          lời nhắc này</label
+        >
+      </fieldset>
+      <p v-if="draft.reminderOffsetMinutes !== null" class="muted small">
+        Máy ngủ hoặc Chrome thoát hoàn toàn có thể làm thông báo trễ.
+        {{
+          app.isExtension
+            ? 'Lời nhắc bị lỡ được xử lý một lần khi Chrome hoạt động lại.'
+            : 'Bản xem trước chỉ nhắc khi trang còn hoạt động; không tin cậy tương đương extension.'
+        }}
+      </p>
       <p class="muted small">Hết một phiên sẽ cộng tiến độ, bạn tự đánh dấu việc đã xong.</p>
       <div class="dialog-actions">
         <button type="button" class="button secondary" @click="editing = false">Hủy</button
@@ -246,3 +427,60 @@ async function remove(task: Task) {
     </form>
   </ModalShell>
 </template>
+<style scoped>
+.filter-tabs {
+  flex-wrap: wrap;
+}
+.task-sort {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--muted);
+  margin: 0 0 12px;
+}
+.task-sort select {
+  flex: 1;
+  min-width: 0;
+  padding: 6px;
+  font-size: 11px;
+}
+.task-due {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 0 31px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.task-due.danger-text {
+  color: var(--accent);
+}
+.reminder-target {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.past-reminder {
+  border: 1px solid var(--primary);
+  padding: 12px;
+  font-size: 12px;
+}
+.past-reminder label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.past-reminder input {
+  width: auto;
+}
+input[type='datetime-local'] {
+  min-width: 0;
+}
+@media (max-width: 520px) {
+  .due-fields {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+</style>

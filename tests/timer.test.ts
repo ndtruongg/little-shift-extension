@@ -108,6 +108,8 @@ describe('tasks and statistics', () => {
       {
         type: 'task.save',
         task: {
+          dueAt: null,
+          reminderOffsetMinutes: null,
           id: 'task-1',
           title: 'Viết tài liệu',
           day: localDay(at),
@@ -162,6 +164,8 @@ describe('tasks and statistics', () => {
       {
         type: 'task.save',
         task: {
+          dueAt: null,
+          reminderOffsetMinutes: null,
           id: 'task-2',
           title: 'Task thứ hai',
           day: '2026-11-03',

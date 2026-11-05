@@ -280,3 +280,41 @@ describe('local file playback', () => {
     expect(elements[2]?.src).toBe('blob:restored');
   });
 });
+
+it('queues simultaneous task and Pomodoro bells on one audio timeline without overlap', async () => {
+  const starts: number[] = [];
+  const stops: number[] = [];
+  vi.stubGlobal(
+    'AudioContext',
+    class {
+      state = 'running';
+      currentTime = 10;
+      destination = {};
+      createOscillator() {
+        return {
+          type: '',
+          frequency: { value: 0 },
+          connect: () => ({ connect: () => {} }),
+          start: (at: number) => starts.push(at),
+          stop: (at: number) => stops.push(at),
+        };
+      }
+      createGain() {
+        return {
+          gain: {
+            setValueAtTime: vi.fn(),
+            linearRampToValueAtTime: vi.fn(),
+            exponentialRampToValueAtTime: vi.fn(),
+          },
+        };
+      }
+    },
+  );
+  const engine = new AudioEngine();
+  await Promise.all([
+    engine.handle({ target: 'audio', type: 'bell', id: 'pomodoro', bell: 'soft', volume: 0.5 }),
+    engine.handle({ target: 'audio', type: 'bell', id: 'task-batch', bell: 'soft', volume: 0.5 }),
+  ]);
+  expect(starts).toHaveLength(6);
+  expect(starts[3]).toBeGreaterThan(stops[2]!);
+});
